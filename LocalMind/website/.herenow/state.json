@@ -1,0 +1,10 @@
+{
+  "publishes": {
+    "ground-nimbus-z3d3": {
+      "siteUrl": "https://ground-nimbus-z3d3.here.now/"
+    },
+    "arctic-temple-ft9a": {
+      "siteUrl": "https://arctic-temple-ft9a.here.now/"
+    }
+  }
+}
