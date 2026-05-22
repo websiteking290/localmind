@@ -8,6 +8,7 @@ Serves static files and proxies chat requests to Ollama.
 No Node.js required — pure Python with built-in http.server.
 """
 
+import sys
 import os
 import json
 import time
