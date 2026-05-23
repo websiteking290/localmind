@@ -102,6 +102,7 @@ timeout /t 3 >nul
 echo 🌍 Opening browser...
 start http://%DASHBOARD_HOST%
 
+:: ── Chat Interface Menu ─────────────────────────────────────
 echo.
 echo ═══════════════════════════════════════════════════════════
 echo   ✅ LocalMind is running!
@@ -109,6 +110,51 @@ echo.
 echo   📊 Dashboard:  http://%DASHBOARD_HOST%
 echo   🤖 Ollama API: http://%OLLAMA_HOST%
 echo.
+echo   Choose your chat interface:
+echo.
+echo   1) LocalMind Dashboard (web browser) - Already open
+echo   2) OpenClaw Chat (terminal AI assistant)
+echo   3) Continue without chat
+echo.
+echo ═══════════════════════════════════════════════════════════
+echo.
+
+set /p CHOICE="Enter choice (1-3): "
+
+if "%CHOICE%"=="2" (
+    echo.
+    echo 🤖 Starting OpenClaw Chat...
+    echo    This will set up OpenClaw to use your USB models
+    echo.
+    
+    :: Check if Node.js is installed
+    node --version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo ⚠ Node.js not found. Installing...
+        echo    Please install Node.js from https://nodejs.org/
+        echo    Then run: %USB_ROOT%\launcher\setup-openclaw.py
+        echo.
+        timeout /t 3 >nul
+    ) else (
+        :: Run OpenClaw setup
+        if exist "%USB_ROOT%\launcher\setup-openclaw.py" (
+            python "%USB_ROOT%\launcher\setup-openclaw.py"
+        ) else (
+            echo ❌ OpenClaw setup script not found
+        )
+    )
+) else if "%CHOICE%"=="3" (
+    echo.
+    echo Continuing without chat interface...
+    echo You can still access the dashboard at http://%DASHBOARD_HOST%
+) else (
+    :: Default - dashboard already opened
+    echo.
+    echo ✅ Dashboard is open in your browser!
+)
+
+echo.
+echo ═══════════════════════════════════════════════════════════
 echo   Press any key to stop LocalMind...
 echo ═══════════════════════════════════════════════════════════
 echo.

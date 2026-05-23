@@ -246,13 +246,64 @@ echo -e "${CYAN}🌍 Opening browser...${RESET}"
 sleep 1
 open "$DASHBOARD_URL" 2>/dev/null || echo "Please open: ${DASHBOARD_URL}"
 
-# ── Status Display ───────────────────────────────────────────
+# ── Chat Interface Menu ─────────────────────────────────────
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${RESET}"
 echo -e "${GREEN}   ✅ LocalMind is running!${RESET}"
 echo ""
 echo -e "${GREEN}   📊 Dashboard:${RESET}  ${DASHBOARD_URL}"
 echo -e "${GREEN}   🤖 Ollama API:${RESET} ${OLLAMA_URL}"
+echo ""
+echo -e "${YELLOW}   Choose your chat interface:${RESET}"
+echo ""
+echo -e "   ${CYAN}1)${RESET} LocalMind Dashboard (web browser) - Already open"
+echo -e "   ${CYAN}2)${RESET} OpenClaw Chat (terminal AI assistant)"
+echo -e "   ${CYAN}3)${RESET} Continue without chat"
+echo ""
+echo -e "${GREEN}═══════════════════════════════════════════════════════════${RESET}"
+echo ""
+
+read -p "Enter choice (1-3): " CHOICE
+
+case $CHOICE in
+    2)
+        echo ""
+        echo -e "${CYAN}🤖 Starting OpenClaw Chat...${RESET}"
+        echo -e "${YELLOW}   This will set up OpenClaw to use your USB models${RESET}"
+        echo ""
+        sleep 1
+        
+        # Check if Node.js is installed (needed for OpenClaw)
+        if ! command -v node >/dev/null 2>&1; then
+            echo -e "${YELLOW}⚠ Node.js not found. Installing...${RESET}"
+            if command -v brew >/dev/null 2>&1; then
+                brew install node
+            else
+                echo -e "${RED}❌ Please install Node.js from https://nodejs.org/${RESET}"
+                echo "   Then run: ${LAUNCHER_DIR}/setup-openclaw.py"
+                break
+            fi
+        fi
+        
+        # Run OpenClaw setup
+        if [ -f "${LAUNCHER_DIR}/setup-openclaw.py" ]; then
+            "$PYTHON_EXE" "${LAUNCHER_DIR}/setup-openclaw.py"
+        else
+            echo -e "${RED}❌ OpenClaw setup script not found${RESET}"
+        fi
+        ;;
+    3)
+        echo ""
+        echo -e "${YELLOW}Continuing without chat interface...${RESET}"
+        echo -e "${YELLOW}You can still access the dashboard at ${DASHBOARD_URL}${RESET}"
+        ;;
+    *)
+        # Default - dashboard already opened
+        echo ""
+        echo -e "${GREEN}✅ Dashboard is open in your browser!${RESET}"
+        ;;
+esac
+
 echo ""
 echo -e "${YELLOW}   Press Ctrl+C to stop LocalMind${RESET}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${RESET}"
