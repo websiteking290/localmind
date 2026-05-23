@@ -96,15 +96,7 @@ echo ""
 # ── Kill Existing Processes ──────────────────────────────────
 echo -e "${YELLOW}🧹 Cleaning up existing processes...${RESET}"
 
-# Kill existing Ollama
-OLLAMA_PIDS=$(pgrep -f "ollama serve" 2>/dev/null)
-if [ -n "$OLLAMA_PIDS" ]; then
-    echo "  Stopping existing Ollama server..."
-    kill $OLLAMA_PIDS 2>/dev/null
-    sleep 2
-fi
-
-# Kill existing dashboard
+# Kill any existing LocalMind dashboard
 DASHBOARD_PIDS=$(pgrep -f "${DASHBOARD_DIR}/server.py" 2>/dev/null)
 if [ -n "$DASHBOARD_PIDS" ]; then
     echo "  Stopping existing dashboard..."
@@ -112,63 +104,105 @@ if [ -n "$DASHBOARD_PIDS" ]; then
     sleep 1
 fi
 
-echo -e "${GREEN}✓ Cleanup complete${RESET}"
+# ── Handle System Ollama Conflict ────────────────────────────
+echo -e "${YELLOW}🔍 Checking for existing Ollama installation...${RESET}"
+
+SYSTEM_OLLAMA_BIN=""
+if command -v ollama >/dev/null 2>&1; then
+    SYSTEM_OLLAMA_BIN=$(which ollama 2>/dev/null)
+fi
+
+SYSTEM_OLLAMA_PID=""
+if lsof -i :11434 >/dev/null 2>&1; then
+    SYSTEM_OLLAMA_PID=$(lsof -i :11434 2>/dev/null | grep LISTEN | awk '{print $2}' | head -1)
+fi
+
+if [ -n "$SYSTEM_OLLAMA_PID" ]; then
+    SYSTEM_OLLAMA_PATH=$(ps -p $SYSTEM_OLLAMA_PID -o comm= 2>/dev/null)
+    echo -e "${YELLOW}⚠ System Ollama detected:${RESET}"
+    echo "   PID: $SYSTEM_OLLAMA_PID"
+    echo "   Path: $SYSTEM_OLLAMA_PATH"
+    echo "   Port: 11434 (conflicts with LocalMind)"
+    echo ""
+    echo -e "${YELLOW}LocalMind needs port 11434. Stopping system Ollama...${RESET}"
+    
+    # Try graceful shutdown first
+    kill $SYSTEM_OLLAMA_PID 2>/dev/null
+    sleep 2
+    
+    # Force kill if still running
+    if kill -0 $SYSTEM_OLLAMA_PID 2>/dev/null; then
+        kill -9 $SYSTEM_OLLAMA_PID 2>/dev/null
+        sleep 1
+    fi
+    
+    # Also try launchctl if it's a service
+    if command -v launchctl >/dev/null 2>&1; then
+        launchctl remove ai.ollama.server 2>/dev/null || true
+    fi
+    
+    # Verify port is free
+    if lsof -i :11434 >/dev/null 2>&1; then
+        echo -e "${RED}❌ Could not free port 11434. Please quit Ollama manually.${RESET}"
+        echo "   (Check Activity Monitor or menu bar)"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✓ System Ollama stopped${RESET}"
+else
+    echo -e "${GREEN}✓ No Ollama conflict detected${RESET}"
+fi
+
 echo ""
 
-# ── Find Ollama Binary ─────────────────────────────────────
+# ── Find USB Ollama Binary ─────────────────────────────────────
+echo -e "${BLUE}🔧 Finding USB Ollama binary...${RESET}"
+
 OLLAMA_BIN=""
 if [ -f "${OLLAMA_DIR}/ollama" ]; then
     OLLAMA_BIN="${OLLAMA_DIR}/ollama"
+    echo -e "${GREEN}✓ Found USB Ollama binary:${RESET} ${OLLAMA_BIN}"
 elif [ -f "${OLLAMA_DIR}/macos/ollama" ]; then
     OLLAMA_BIN="${OLLAMA_DIR}/macos/ollama"
-fi
-
-if [ -z "$OLLAMA_BIN" ]; then
-    # Check system PATH
-    OLLAMA_BIN=$(which ollama 2>/dev/null)
-fi
-
-if [ -z "$OLLAMA_BIN" ] || [ ! -f "$OLLAMA_BIN" ]; then
-    echo -e "${RED}❌ Ollama binary not found!${RESET}"
-    echo "Expected at: ${OLLAMA_DIR}/ollama"
+    echo -e "${GREEN}✓ Found USB Ollama binary:${RESET} ${OLLAMA_BIN}"
+else
+    echo -e "${RED}❌ Ollama binary not found on USB!${RESET}"
+    echo "   Expected at: ${OLLAMA_DIR}/ollama"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Ollama binary:${RESET} ${OLLAMA_BIN}"
-
-# Check Ollama version
 OLLAMA_VERSION=$($OLLAMA_BIN --version 2>/dev/null | head -1)
 echo -e "${GREEN}✓ Version:${RESET} ${OLLAMA_VERSION}"
 echo ""
 
-# ── Start Ollama Server ────────────────────────────────────
-echo -e "${CYAN}🚀 Starting Ollama AI Engine...${RESET}"
+# ── Start USB Ollama Server ────────────────────────────────────
+echo -e "${CYAN}🚀 Starting USB Ollama AI Engine...${RESET}"
 echo -e "${CYAN}   Server will run at ${OLLAMA_URL}${RESET}"
 echo ""
+
+# Export environment for USB Ollama
+export OLLAMA_MODELS="${MODELS_DIR}"
+export OLLAMA_HOST="${OLLAMA_HOST}"
+export OLLAMA_PORT="${OLLAMA_PORT}"
+export OLLAMA_ORIGINS="*"
 
 # Create data directory
 mkdir -p "$DATA_DIR"
 
-# Export environment variables
-export OLLAMA_MODELS="$MODELS_DIR"
-export OLLAMA_HOST="$OLLAMA_HOST"
-export OLLAMA_PORT="$OLLAMA_PORT"
-export OLLAMA_ORIGINS="*"
-
-# Start Ollama in background
+# Start USB Ollama in background
 nohup "$OLLAMA_BIN" serve > /tmp/localmind_ollama.log 2>&1 &
 echo $! > /tmp/localmind_ollama.pid
 OLLAMA_PID=$(cat /tmp/localmind_ollama.pid)
 
 # Wait for Ollama to be ready
-echo -n "⏳ Waiting for Ollama to start"
+echo -n "⏳ Waiting for USB Ollama to start"
 MAX_WAIT=60
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     sleep 1
     if curl -s --max-time 2 "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
         echo ""
-        echo -e "${GREEN}✓ Ollama is running!${RESET}"
+        echo -e "${GREEN}✓ USB Ollama is running!${RESET}"
         break
     fi
     WAITED=$((WAITED + 1))
@@ -179,25 +213,32 @@ done
 
 if [ $WAITED -ge $MAX_WAIT ]; then
     echo ""
-    echo -e "${RED}❌ Ollama failed to start within ${MAX_WAIT} seconds${RESET}"
+    echo -e "${RED}❌ USB Ollama failed to start within ${MAX_WAIT} seconds${RESET}"
     echo "Check logs: /tmp/localmind_ollama.log"
+    echo ""
+    echo "Common issues:"
+    echo "  - Port 11434 still in use by another Ollama"
+    echo "  - Missing models directory"
+    echo "  - Corrupted Ollama binary"
     exit 1
 fi
 
+# Use ONLY USB Ollama binary for all commands
+OLLAMA_CMD="$OLLAMA_BIN"
+
 # List available models
 echo ""
-echo -e "${BLUE}📦 Available Models:${RESET}"
-MODELS_JSON=$(curl -s --max-time 5 "${OLLAMA_URL}/api/tags" 2>/dev/null)
-echo "$MODELS_JSON" | $PYTHON_EXE -c "
-import sys, json
-data = json.load(sys.stdin)
-for m in data.get('models', []):
-    name = m.get('name', 'unknown')
-    size_gb = m.get('size', 0) / (1024**3)
-    print(f'  • {name} ({size_gb:.1f} GB)')
-if not data.get('models'):
-    print('  (No models found yet - they may still be downloading)')
-" 2>/dev/null || echo "  (Could not retrieve model list)"
+echo -e "${BLUE}📦 Available Models on USB:${RESET}"
+MODELS_JSON=$($OLLAMA_CMD list 2>/dev/null)
+echo "$MODELS_JSON" | while read line; do
+    if [ -n "$line" ] && [ "$line" != "NAME    ID    SIZE    MODIFIED" ]; then
+        echo "  • $line"
+    fi
+done
+MODEL_COUNT=$(echo "$MODELS_JSON" | grep -v "^NAME" | grep -v "^$" | wc -l | tr -d ' ')
+if [ "$MODEL_COUNT" -eq "0" ]; then
+    echo "  (No models found — please download models first)"
+fi
 echo ""
 
 # ── Start Dashboard ──────────────────────────────────────────
