@@ -1,0 +1,59 @@
+{
+  "name": "LocalMind",
+  "version": "1.1",
+  "description": "128GB USB with 6 premium AI models - runs entirely offline",
+  "models": [
+    {
+      "name": "llama3.1:70b",
+      "description": "Meta's best general-purpose model. Great for reasoning, writing, analysis.",
+      "size_gb": 39.6,
+      "parameters": "70B",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "name": "qwen2.5:32b",
+      "description": "Alibaba's reasoning champion. Excellent for math, logic, coding.",
+      "size_gb": 18.5,
+      "parameters": "32B",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "name": "deepseek-r1:14b",
+      "description": "DeepSeek's coding specialist. Best for programming tasks.",
+      "size_gb": 8.4,
+      "parameters": "14B",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "name": "gemma4",
+      "description": "Google's latest model. Great for creative writing and analysis.",
+      "size_gb": 8.9,
+      "parameters": "9B",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "name": "phi4",
+      "description": "Microsoft's fast model. Good for quick responses and general tasks.",
+      "size_gb": 8.4,
+      "parameters": "14.7B",
+      "quantization": "Q4_K_M"
+    },
+    {
+      "name": "mistral-nemo",
+      "description": "Mistral's efficient model. Good balance of speed and quality.",
+      "size_gb": 6.6,
+      "parameters": "12B",
+      "quantization": "Q4_K_M"
+    }
+  ],
+  "total_size_gb": 90.4,
+  "ollama_version": "0.24.0",
+  "platforms": ["macOS", "Windows", "Linux"],
+  "features": [
+    "Offline AI chat",
+    "Web dashboard",
+    "OpenClaw terminal chat",
+    "Auto-setup scripts"
+  ],
+  "updated": "2026-05-23"
+}
