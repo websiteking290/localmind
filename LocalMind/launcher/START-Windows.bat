@@ -61,27 +61,78 @@ echo.
 :: Create data directory if not exists
 if not exist "%DATA_PATH%" mkdir "%DATA_PATH%"
 
-:: Start Ollama Server
-echo 🚀 Starting Ollama AI Engine...
-echo    Server will run at http://%OLLAMA_HOST%
+:: ── Handle System Ollama Conflict ──────────────────────────
+echo 🔍 Checking for existing Ollama installation...
+
+:: Check if Ollama is already running on port 11434
+curl -s http://%OLLAMA_HOST%/api/tags >nul 2>&1
+if %errorlevel% equ 0 (
+    echo ⚠ System Ollama detected on port 11434
+    echo   Stopping it to prevent conflicts...
+    
+    :: Kill any Ollama processes
+    taskkill /f /im ollama.exe >nul 2>&1
+    taskkill /f /im ollama >nul 2>&1
+    timeout /t 2 >nul
+    
+    :: Also check for Windows service
+    sc query Ollama >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo   Stopping Ollama Windows service...
+        net stop Ollama >nul 2>&1
+        timeout /t 2 >nul
+    )
+    
+    :: Verify port is free
+    curl -s http://%OLLAMA_HOST%/api/tags >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo ❌ Could not free port 11434. Please quit Ollama manually.
+        echo    (Check system tray or Task Manager)
+        pause
+        exit /b 1
+    )
+    
+    echo ✓ System Ollama stopped
+) else (
+    echo ✓ No Ollama conflict detected
+)
+
 echo.
 
-:: Kill any existing Ollama processes
+:: Start Ollama Server
+echo 🚀 Starting USB Ollama AI Engine...
+echo    Server will run at http://%OLLAMA_HOST%
+echo    Models: %MODELS_PATH%
+echo.
+
+:: Kill any existing Ollama processes (just to be safe)
 taskkill /f /im ollama.exe >nul 2>&1
 timeout /t 2 >nul
 
-:: Start Ollama in background
+:: Start Ollama from USB in background
 start "LocalMind - Ollama Server" /min cmd /c "cd /d "%OLLAMA_PATH%" && set OLLAMA_MODELS=%MODELS_PATH% && set OLLAMA_HOST=%OLLAMA_HOST% && set OLLAMA_ORIGINS=* && ollama.exe serve 2>&1"
 timeout /t 3 >nul
 
-:: Verify Ollama is running
+:: Verify Ollama is running using USB binary
 curl -s http://%OLLAMA_HOST%/api/tags >nul 2>&1
 if %errorlevel% neq 0 (
     echo ⚠ Ollama server starting up, waiting...
     timeout /t 5 >nul
+    
+    :: Check again
+    curl -s http://%OLLAMA_HOST%/api/tags >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo ❌ Ollama failed to start!
+        echo    Common issues:
+        echo    - Port 11434 still in use
+        echo    - Missing Visual C++ redistributable
+        echo    - Corrupted Ollama binary
+        pause
+        exit /b 1
+    )
 )
 
-echo ✓ Ollama is running
+echo ✓ USB Ollama is running
 echo.
 
 :: Start Dashboard
