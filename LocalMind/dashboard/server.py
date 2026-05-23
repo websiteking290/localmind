@@ -301,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
     
-    def _proxy_to_ollama(self, path, method="GET", body=None, headers=None):
+    def _proxy_to_ollama(self, path, method="GET", body=None, headers=None, timeout=10):
         """Forward request to Ollama server."""
         url = f"{OLLAMA_URL}{path}"
         req = urllib.request.Request(url, method=method)
@@ -314,10 +314,10 @@ class Handler(BaseHTTPRequestHandler):
             req.data = body.encode() if isinstance(body, str) else body
         
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.status, resp.read().decode()
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, resp.read().decode('utf-8')
         except urllib.error.HTTPError as e:
-            return e.code, e.read().decode()
+            return e.code, e.read().decode('utf-8')
         except Exception as e:
             return 502, json.dumps({"error": str(e)})
     
@@ -329,23 +329,51 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(DASHBOARD_HTML)
         
         elif path == "/api/models":
-            # List models from Ollama
-            status, body = self._proxy_to_ollama("/api/tags")
-            if status == 200:
-                data = json.loads(body)
-                # Enrich with manifest info
+            # List models from Ollama with fallback to manifest
+            try:
+                status, body = self._proxy_to_ollama("/api/tags", timeout=5)
+                if status == 200:
+                    data = json.loads(body)
+                    # Enrich with manifest info
+                    if MANIFEST_FILE.exists():
+                        try:
+                            with open(MANIFEST_FILE) as f:
+                                manifest = json.load(f)
+                            model_map = {m["name"]: m for m in manifest.get("models", [])}
+                            for m in data.get("models", []):
+                                name = m.get("name", "").replace(":latest", "")
+                                if name in model_map:
+                                    m["description"] = model_map[name].get("description", "")
+                                    m["size_gb"] = model_map[name].get("size_gb", "")
+                                    m["parameters"] = model_map[name].get("parameters", "")
+                        except Exception:
+                            pass  # Don't fail if manifest enrichment breaks
+                    self._send_json(data)
+                    return
+            except Exception as e:
+                pass  # Fall through to manifest fallback
+            
+            # Fallback: read from manifest only
+            try:
                 if MANIFEST_FILE.exists():
                     with open(MANIFEST_FILE) as f:
                         manifest = json.load(f)
-                    model_map = {m["name"]: m for m in manifest.get("models", [])}
-                    for m in data.get("models", []):
-                        name = m.get("name", "")
-                        if name in model_map:
-                            m["description"] = model_map[name].get("description", "")
-                            m["size_gb"] = model_map[name].get("size_gb", "")
-                self._send_json(data)
-            else:
-                self._send_json({"models": []}, status)
+                    models = []
+                    for m in manifest.get("models", []):
+                        models.append({
+                            "name": m.get("name", "") + ":latest",
+                            "model": m.get("name", "") + ":latest",
+                            "size": int(m.get("size_gb", 0) * 1024 * 1024 * 1024),
+                            "description": m.get("description", ""),
+                            "size_gb": m.get("size_gb", ""),
+                            "parameters": m.get("parameters", ""),
+                        })
+                    self._send_json({"models": models})
+                    return
+            except Exception:
+                pass
+            
+            self._send_json({"models": []})
         
         elif path == "/api/system":
             # System info
