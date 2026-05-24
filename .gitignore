@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+LocalMind/data/
+LocalMind/models/*.bin
+LocalMind/models/*.gguf
+LocalMind/models/blobs/
+LocalMind/models/manifests/
+
