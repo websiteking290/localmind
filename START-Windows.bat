@@ -120,7 +120,7 @@ if not exist "%SETUP_PY%" (
 )
 
 cd /d "%USB_ROOT%LocalMind"
-%PYTHON% "%SETUP_PY%"
+%PYTHON% "%SETUP_PY%" --auto
 
 if %errorlevel% neq 0 (
     echo.

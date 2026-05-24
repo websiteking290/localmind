@@ -299,6 +299,7 @@ def manage_models(ollama_bin):
     installed = get_installed_models(ollama_bin)
     p(f"{len(installed)} model(s) now installed.", "ok")
 
+
 # ── Step 4: Start Services ─────────────────────────────────
 class LocalMindLauncher:
     def __init__(self):
@@ -409,7 +410,7 @@ class LocalMindLauncher:
         except:
             print(f"   Please open: {url}")
 
-    def show_menu(self):
+    def show_menu(self, auto=False):
         url = f"http://localhost:{self.dashboard_port}"
         print()
         print(f"{C['green']}{C['bold']}═══════════════════════════════════════════════════════════{C['reset']}")
@@ -418,6 +419,20 @@ class LocalMindLauncher:
         print(f"{C['green']}   📊 Dashboard:  {url}{C['reset']}")
         print(f"{C['green']}   🤖 Ollama API: http://localhost:{self.ollama_port}{C['reset']}")
         print()
+
+        # Auto-mode (beginner): skip menu, just open Local Chat
+        if auto:
+            print(f"{C['cyan']}   🔗 Local Chat is open in your browser!{C['reset']}")
+            print()
+            print(f"{C['dim']}   To use OpenClaw terminal chat, open a terminal and run:{C['reset']}")
+            if IS_WIN:
+                print(f"{C['dim']}      openclaw chat{C['reset']}")
+            else:
+                print(f"{C['dim']}      openclaw chat{C['reset']}")
+            print()
+            print(f"   Press Ctrl+C to stop LocalMind.")
+            return
+
         print(f"{C['yellow']}   Choose your interface:{C['reset']}")
         print()
         print(f"   {C['cyan']}1){C['reset']} Local Chat (web browser) — Already open")
@@ -497,7 +512,7 @@ class LocalMindLauncher:
             p("Dashboard failed, but AI engine is running.", "warn")
 
         self.open_browser()
-        self.show_menu()
+        self.show_menu(auto=getattr(self, 'auto_mode', False))
 
         self.running = True
         signal.signal(signal.SIGINT, self.shutdown)
@@ -517,7 +532,14 @@ class LocalMindLauncher:
 # ── Entry ──────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        LocalMindLauncher().run()
+        # Auto mode (beginner/autorun): skip menu, open Local Chat directly
+        auto_mode = "--auto" in sys.argv or "-y" in sys.argv
+        launcher = LocalMindLauncher()
+        launcher.auto_mode = auto_mode
+        launcher.run()
+    except KeyboardInterrupt:
+        print(f"\n{C['yellow']}LocalMind stopped.{C['reset']}")
+        sys.exit(0)
     except Exception as e:
         print(f"\n{C['red']}[✗] Fatal error: {e}{C['reset']}")
         raise

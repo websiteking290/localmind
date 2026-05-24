@@ -1,24 +1,48 @@
 # LocalMind — Offline AI on a USB Stick
 
-> **Plug in. Launch. Think.** — Your personal AI assistant that works entirely offline.
+> **Plug in. Start. Chat.** — Your personal AI assistant that works entirely offline.
 
-LocalMind is a USB drive pre-loaded with Ollama AI engine and a web dashboard. Plug it into any Windows or Mac, double-click the launcher, and start chatting — no internet required.
+LocalMind is a USB drive pre-loaded with Ollama AI engine, 3 chat models, and a web dashboard. Plug it into any Windows or Mac, and it starts automatically — no internet required.
 
 ## 🚀 Quick Start
 
-### Windows
-1. Plug in the LocalMind USB drive
-2. Open File Explorer → double-click `START-Windows.bat`
-3. If Python is missing, it auto-installs (one-time)
-4. If AI models are missing, it offers to download them
-5. Choose: **Local Chat** (web browser) or **OpenClaw** (terminal)
-
 ### macOS
 1. Plug in the LocalMind USB drive
-2. Open Finder → double-click `START-macOS.command`
-3. If Python is missing, install it: `brew install python3`
-4. If AI models are missing, it offers to download them
-5. Choose: **Local Chat** (web browser) or **OpenClaw** (terminal)
+2. **Autorun opens LocalMind automatically** (or double-click `START-macOS.command` if needed)
+3. Local Chat opens in your browser automatically
+4. Pick a model from the sidebar and start chatting!
+
+### Windows
+1. Plug in the LocalMind USB drive
+2. **Autorun starts LocalMind automatically** (or double-click `START-Windows.bat` if needed)
+3. Local Chat opens in your browser automatically
+4. Pick a model from the sidebar and start chatting!
+
+## 🤖 AI Models (Pre-Loaded)
+
+All models run entirely offline — no internet needed after first setup.
+
+| Model | Size | RAM | Best For |
+|-------|------|-----|----------|
+| **gemma4:e4b** | 5.8 GB | ~5 GB | Google's latest. Fast, efficient. |
+| **qwen2.5:7b** | 4.4 GB | ~6 GB | Strong coding & reasoning. |
+| **mistral:7b** | 4.1 GB | ~5 GB | Fast, reliable all-purpose. |
+
+**Works on 8GB RAM computers.** All 3 models fit on the USB (22GB total).
+
+## 🖥️ Two Ways to Chat
+
+### 1. Local Chat (Web Dashboard) — Default
+- Opens automatically when you plug in
+- Go to: `http://localhost:3000`
+- Select a model from the sidebar
+- Chat in the web interface
+
+### 2. OpenClaw Chat (Terminal)
+- Open a terminal on your computer
+- Run: `openclaw chat`
+- Works with Ollama models via OpenClaw
+- Requires Node.js to be installed
 
 ## 💻 System Requirements
 
@@ -28,89 +52,47 @@ LocalMind is a USB drive pre-loaded with Ollama AI engine and a web dashboard. P
 | RAM | 8 GB | 16 GB |
 | CPU | Intel i3 / Apple M1 | Intel i5 / Apple M3 |
 | USB | USB 3.0 | USB 3.2 Gen 2 |
-| Storage | 128GB free on USB | 256GB for extra models |
 
-**No GPU required** — everything runs on CPU.
+## 🛠️ Troubleshooting
 
-## 🧠 AI Models (Downloadable)
+### "Python not found" on Windows
+LocalMind will prompt you to download Python automatically. Requires internet for one-time setup.
 
-| Model | Size | Best For |
-|-------|------|----------|
-| **LLaMA 3.1 8B** | 4.7 GB | General chat, coding, creative writing |
-| **Qwen 2.5 7B** | 4.5 GB | Coding, reasoning, multilingual tasks |
-| **Phi-4 14B** | 8.4 GB | Complex reasoning, math, instructions |
-| **Mistral 7B** | 4.1 GB | Fast general-purpose queries |
-| **Gemma 3 4B** | 3.0 GB | Lightweight tasks, quick responses |
+### Dashboard doesn't open
+1. Open a browser to `http://localhost:3000`
+2. Or try `http://localhost:3001`
 
-**Total: ~24 GB** — leaving ~100GB free for your data and additional models.
+### Chat is slow
+Models load into RAM. First message takes 10-30 seconds. Subsequent messages are fast. Use smaller models (gemma4 or mistral) for faster responses.
 
-Models are **downloaded on first run** — the USB ships with the AI engine and dashboard, models auto-install when you launch.
+### Models not detected
+If models aren't found, setup.py will ask if you want to download them. Your models are pre-loaded, so this shouldn't happen.
 
-## 📁 Project Structure
+## 📁 USB Structure
 
 ```
-LocalMind/                    # Everything on the USB
-├── setup.py                  # ← Main launcher (double-click or run)
-├── dashboard/
-│   └── server.py             # Web UI (runs on localhost:3000)
-├── models/                   # AI models (auto-downloaded on first run)
-├── ollama/
-│   ├── ollama                # macOS binary
-│   ├── windows/ollama.exe    # Windows binary
-│   └── windows/vc_redist.x64.exe  # Visual C++ redist
-├── data/                     # User chats, settings (stays on USB)
-├── .localmind/
-│   └── manifest.json         # Product metadata
-├── launcher/                 # Platform-specific helpers
-│   └── install-python.bat    # Windows Python auto-installer
-└── openclaw/                 # OpenClaw AI assistant (optional)
-
-Root of USB:
-├── START-macOS.command       # macOS double-click launcher
-├── START-Windows.bat         # Windows double-click launcher
-└── autorun.inf              # Windows auto-run (if enabled)
+LocalMind USB/
+├── START-macOS.command    ← Launch (Mac)
+├── START-Windows.bat      ← Launch (Windows)
+├── LocalMind/
+│   ├── setup.py           ← Main launcher
+│   ├── ollama/ollama      ← AI engine
+│   ├── models/            ← AI model files (22GB)
+│   ├── dashboard/         ← Web dashboard
+│   └── openclaw/          ← Terminal AI assistant
 ```
 
-## 🛠️ How `setup.py` Works
+## 🔒 Privacy
 
-The unified launcher handles everything:
+Everything runs locally on YOUR computer. No data leaves the machine. No internet required after setup.
 
-1. **Python check** — verifies Python 3.9+ is installed
-2. **Model check** — lists installed models, offers downloads if empty
-3. **Ollama start** — launches the bundled Ollama binary, auto-finds a free port
-4. **Dashboard start** — launches the Python web server
-5. **Browser open** — opens the dashboard automatically
-6. **Choice menu** — pick Local Chat (web) or OpenClaw (terminal)
-7. **Graceful shutdown** — Ctrl+C kills everything cleanly
+## 📋 What's Included
 
-### Manual Model Download
+- **Ollama** — Local AI engine (runs models)
+- **3 Pre-Loaded Models** — gemma4, qwen2.5, mistral (~22GB)
+- **Web Dashboard** — Pure Python, no Node.js needed
+- **OpenClaw** — Terminal AI assistant (requires Node.js)
 
-```bash
-cd LocalMind
-python3 setup.py
-# Choose "Y" when asked to download models
-```
+## 🆘 Stopping LocalMind
 
-Or use Ollama directly:
-
-```bash
-./ollama/ollama pull llama3.1:8b
-./ollama/ollama pull phi4
-```
-
-## 🔒 Security & Privacy
-
-- **Zero data exfiltration** — everything stays on the USB
-- **No telemetry** — no usage tracking or analytics
-- **No cloud dependency** — works fully offline after model download
-- **Open source** — audit the code yourself
-
-## 📝 License
-
-MIT License — use it, fork it, ship it.
-
----
-
-**Questions?** support@localmind.ai
-
-**© 2026 LocalMind**
+Press `Ctrl+C` in the terminal window to stop LocalMind.

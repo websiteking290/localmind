@@ -64,4 +64,4 @@ if [ ! -f "$SETUP_PY" ]; then
 fi
 
 cd "${SCRIPT_DIR}/LocalMind"
-exec "$PYTHON" "$SETUP_PY"
+exec "$PYTHON" "$SETUP_PY" --auto
