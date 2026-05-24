@@ -55,12 +55,11 @@ OLLAMA_PORT = 11434
 DASHBOARD_PORT = 3000
 
 # ── Recommended Models ───────────────────────────────────
+# Models that run on 8GB RAM average computers
 RECOMMENDED_MODELS = [
-    {"name": "llama3.1:8b", "size_gb": 4.7, "desc": "Best all-rounder. Writing, reasoning, coding."},
-    {"name": "qwen2.5:7b", "size_gb": 4.5, "desc": "Strong reasoning & math. Great for analysis."},
-    {"name": "phi4",       "size_gb": 8.4, "desc": "Microsoft's best. Fast, accurate, versatile."},
-    {"name": "mistral:7b", "size_gb": 4.1, "desc": "Efficient & capable. Good balance of speed."},
-    {"name": "gemma3:4b",  "size_gb": 3.0, "desc": "Google's fastest. Great for quick tasks."},
+    {"name": "gemma4:e4b", "size_gb": 2.6, "desc": "Google DeepMind's latest. Efficient, runs anywhere."},
+    {"name": "qwen2.5:7b", "size_gb": 4.7, "desc": "Strong all-purpose. Great coding & reasoning."},
+    {"name": "mistral:7b", "size_gb": 4.1, "desc": "Fast, reliable, well-tested."},
 ]
 
 # ── Colors ───────────────────────────────────────────────
@@ -226,9 +225,12 @@ def find_ollama():
 # ── Step 3: Model Download ───────────────────────────────
 def get_installed_models(ollama_bin):
     try:
+        env = os.environ.copy()
+        env["OLLAMA_MODELS"] = str(MODELS_DIR)
+        env["HOME"] = str(DATA_DIR)
         out = subprocess.run(
             [str(ollama_bin), "list"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10, env=env
         )
         lines = [l.strip() for l in out.stdout.splitlines() if l.strip() and not l.startswith("NAME")]
         return lines
@@ -345,7 +347,8 @@ class LocalMindLauncher:
 
         env = os.environ.copy()
         env["OLLAMA_MODELS"] = str(MODELS_DIR)
-        env["OLLAMA_HOST"] = f"127.0.0.1:{self.ollama_port}"  # Ollama uses host:port format
+        env["OLLAMA_HOST"] = "127.0.0.1"
+        env["OLLAMA_PORT"] = str(self.ollama_port)
         env["OLLAMA_ORIGINS"] = "*"
         env["HOME"] = str(DATA_DIR)
 
@@ -376,7 +379,8 @@ class LocalMindLauncher:
         env["LOCALMIND_ROOT"] = str(USB_ROOT)
         env["LOCALMIND_DATA"] = str(DATA_DIR)
         env["LOCALMIND_PORT"] = str(DASHBOARD_PORT)
-        env["OLLAMA_HOST"] = f"http://127.0.0.1:{self.ollama_port}"
+        env["OLLAMA_HOST"] = "http://127.0.0.1"
+        env["OLLAMA_PORT"] = str(self.ollama_port)
 
         self.dashboard_proc = run_bg(
             [sys.executable, str(server_py)],
