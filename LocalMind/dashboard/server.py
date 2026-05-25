@@ -13,10 +13,12 @@ import os
 import json
 import time
 import socket
+import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 
 # ── Configuration ───────────────────────────────────────
@@ -24,9 +26,10 @@ USB_ROOT = Path(os.environ.get("LOCALMIND_ROOT", ".")).resolve()
 DATA_DIR = Path(os.environ.get("LOCALMIND_DATA", str(USB_ROOT / "data"))).resolve()
 PORT = int(os.environ.get("LOCALMIND_PORT", "3000"))
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "127.0.0.1")
-OLLAMA_PORT = int(os.environ.get("OLLAMA_PORT", "11434"))
+OLLAMA_HOST = os.environ.get("LOCALMIND_OLLAMA_HOST", "127.0.0.1")
+OLLAMA_PORT = int(os.environ.get("LOCALMIND_OLLAMA_PORT", "11434"))
 OLLAMA_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
+_CHAT_LOCK = threading.Lock()  # Serialize concurrent chat requests — Ollama handles one at a time
 
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 CONFIG_FILE = DATA_DIR / "localmind.json"
@@ -301,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode())
     
-    def _proxy_to_ollama(self, path, method="GET", body=None, headers=None, timeout=10):
+    def _proxy_to_ollama(self, path, method="GET", body=None, headers=None, timeout=120):
         """Forward request to Ollama server."""
         url = f"{OLLAMA_URL}{path}"
         req = urllib.request.Request(url, method=method)
@@ -317,8 +320,11 @@ class Handler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.status, resp.read().decode('utf-8')
         except urllib.error.HTTPError as e:
-            return e.code, e.read().decode('utf-8')
+            body = e.read().decode('utf-8')
+            sys.stderr.write(f"[Ollama proxy] HTTPError {e.code} for {url}: {body[:200]}\n")
+            return e.code, body
         except Exception as e:
+            sys.stderr.write(f"[Ollama proxy] Error {type(e).__name__}: {e} for {url}\n")
             return 502, json.dumps({"error": str(e)})
     
     def do_GET(self):
@@ -416,12 +422,17 @@ class Handler(BaseHTTPRequestHandler):
                     "stream": False,
                 })
                 
-                status, resp_body = self._proxy_to_ollama(
-                    "/api/chat",
-                    method="POST",
-                    body=ollama_body,
-                    headers={"Content-Type": "application/json"}
-                )
+                # Serialize chat requests — Ollama processes models sequentially, not in parallel.
+                # Without this lock, concurrent requests queue up inside Ollama's single-threaded
+                # serve process, causing 502 errors and stalled responses.
+                with _CHAT_LOCK:
+                    status, resp_body = self._proxy_to_ollama(
+                        "/api/chat",
+                        method="POST",
+                        body=ollama_body,
+                        headers={"Content-Type": "application/json"},
+                        timeout=120,
+                    )
                 
                 if status == 200:
                     resp_data = json.loads(resp_body)
@@ -458,13 +469,17 @@ def find_free_port(start=3000):
             continue
     return start
 
+# ── Threaded server so concurrent slow Ollama requests don't block each other ──
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
 def main():
     import sys
-    
+
     # Find available port
     port = find_free_port(PORT)
-    
-    server = HTTPServer(("127.0.0.1", port), Handler)
+
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     
     print(f"\n  LocalMind Dashboard running at http://localhost:{port}")
     print(f"  USB Root: {USB_ROOT}")

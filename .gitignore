@@ -1,9 +1,34 @@
+# Byte-compiled / cache
 __pycache__/
 *.pyc
+*.pyo
 .DS_Store
-LocalMind/data/
+
+# Ollama models (downloaded at runtime)
 LocalMind/models/*.bin
 LocalMind/models/*.gguf
 LocalMind/models/blobs/
 LocalMind/models/manifests/
+LocalMind/models/.cache/
 
+# User data (generated at runtime)
+LocalMind/data/
+LocalMind/logs/
+LocalMind/temp/
+
+# Portal builds (build at deploy time)
+portal/dist/
+portal/.next/
+portal-copy/
+
+# Environment secrets
+.env
+.env.local
+.env.production
+
+# Node modules
+*/node_modules/
+
+# Ollama binary (downloaded by setup.py)
+LocalMind/ollama/ollama
+!LocalMind/ollama/.gitkeep

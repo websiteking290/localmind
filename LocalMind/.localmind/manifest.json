@@ -4,51 +4,38 @@
   "description": "128GB USB with offline AI — plug in, download models, start chatting. No internet needed after setup.",
   "models": [
     {
-      "name": "llama3.1:8b",
-      "description": "Meta's best general-purpose model. Great for reasoning, writing, analysis.",
-      "size_gb": 4.7,
-      "parameters": "8B",
+      "name": "gemma4:e4b",
+      "description": "Google DeepMind's latest. Efficient, runs on any laptop.",
+      "size_gb": 2.6,
+      "parameters": "4.5B effective",
       "quantization": "Q4_K_M"
     },
     {
       "name": "qwen2.5:7b",
-      "description": "Alibaba's reasoning champion. Excellent for math, logic, coding.",
-      "size_gb": 4.5,
+      "description": "Strong all-purpose. Great coding and reasoning.",
+      "size_gb": 4.7,
       "parameters": "7B",
-      "quantization": "Q4_K_M"
-    },
-    {
-      "name": "phi4",
-      "description": "Microsoft's best. Fast, accurate, versatile.",
-      "size_gb": 8.4,
-      "parameters": "14B",
       "quantization": "Q4_K_M"
     },
     {
       "name": "mistral:7b",
-      "description": "Efficient and capable. Good balance of speed and quality.",
+      "description": "Fast, reliable, well-tested instruction model.",
       "size_gb": 4.1,
       "parameters": "7B",
       "quantization": "Q4_K_M"
-    },
-    {
-      "name": "gemma3:4b",
-      "description": "Google's fastest. Great for quick tasks and lightweight queries.",
-      "size_gb": 3.0,
-      "parameters": "4B",
-      "quantization": "Q4_K_M"
     }
   ],
-  "total_size_gb": 24.7,
+  "total_size_gb": 11.4,
   "ollama_version": "0.24.0",
   "platforms": ["macOS", "Windows", "Linux"],
   "features": [
-    "Offline AI chat after first download",
+    "Offline AI chat — no internet required",
     "Auto-detects Python, installs if missing (Windows)",
     "Web dashboard with model selector",
     "Auto-downloads models on first run",
     "Auto-finds free ports (no conflicts)",
-    "OpenClaw terminal chat support"
+    "OpenClaw terminal chat support",
+    "Runs on 8GB RAM average computers"
   ],
   "setup": {
     "script": "setup.py",

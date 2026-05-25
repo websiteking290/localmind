@@ -51,7 +51,7 @@ DATA_DIR = USB_ROOT / "data"
 OPENCLAW_DIR = USB_ROOT / "openclaw"
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 
-OLLAMA_PORT = 11435
+OLLAMA_PORT = 11434
 DASHBOARD_PORT = 3000
 
 # ── Recommended Models ───────────────────────────────────
@@ -127,6 +127,17 @@ def run_bg(cmd, env=None, cwd=None, hide=True):
     kw = {"env": env, "cwd": str(cwd) if cwd else None}
     if IS_WIN:
         kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        # Set DLL search path so Ollama can find its CPU backend DLLs
+        import ctypes
+        try:
+            dll_path = str(OLLAMA_DIR / "windows" / "lib")
+            k32 = ctypes.CDLL("kernel32.dll")
+            k32.AddDllDirectory(dll_path)
+            env = dict(env or os.environ)
+            env["PATH"] = dll_path + os.pathsep + env.get("PATH", "")
+            kw["env"] = env
+        except Exception:
+            pass  # Non-critical if this fails
     if hide:
         kw["stdout"] = subprocess.DEVNULL
         kw["stderr"] = subprocess.DEVNULL
@@ -309,20 +320,81 @@ class LocalMindLauncher:
         self.running = False
         self.ollama_port = OLLAMA_PORT
 
+    def _cleanup_stale_runners(self):
+        """Kill stale Ollama runner processes from previous sessions."""
+        try:
+            if IS_MAC or IS_LINUX:
+                result = subprocess.run(
+                    ["ps", "aux"],
+                    capture_output=True, text=True, timeout=5
+                )
+                for line in result.stdout.splitlines():
+                    if "ollama runner" in line and "minimax-m2.7:cloud" not in line:
+                        parts = line.split()
+                        if len(parts) > 1:
+                            pid = parts[1]
+                            try:
+                                subprocess.run(["kill", "-9", pid], capture_output=True, timeout=2)
+                                p(f"Cleaned up stale runner PID {pid}", "warn")
+                            except:
+                                pass
+            elif IS_WIN:
+                subprocess.run(["taskkill", "/f", "/im", "ollama.exe"], capture_output=True, timeout=5)
+        except Exception as e:
+            pass  # Best effort
+
     def start_ollama(self):
         p("Starting AI engine...", "info")
 
-        # USB Ollama always uses its own port — never kill other Ollamas
-        # If our preferred port is in use, find a free one
-        if not is_port_free(self.ollama_port):
-            p(f"Port {self.ollama_port} in use — finding free port...", "warn")
-            alt = find_free_port(self.ollama_port + 1, self.ollama_port + 50)
-            if alt:
-                p(f"Using alternate port {alt}", "warn")
-                self.ollama_port = alt
-            else:
-                p("Could not find free port.", "error")
-                return False
+        # Clean any stale runners from previous sessions first
+        self._cleanup_stale_runners()
+
+        # Check if default port 11434 is already in use by another Ollama
+        if self.ollama_port == 11434 and not is_port_free(11434):
+            p("Port 11434 is in use — checking for conflict...", "warn")
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    existing_models = json.loads(resp.read()).get("models", [])
+                    if existing_models:
+                        # Check if USB models are available on this Ollama
+                        usb_model_names = set()
+                        try:
+                            env = os.environ.copy()
+                            env["OLLAMA_MODELS"] = str(MODELS_DIR)
+                            env["HOME"] = str(DATA_DIR)
+                            out = subprocess.run(
+                                [str(self.ollama_bin), "list"],
+                                capture_output=True, text=True, timeout=10, env=env
+                            )
+                            for line in out.stdout.splitlines():
+                                if line.strip() and not line.startswith("NAME"):
+                                    usb_model_names.add(line.strip().split()[0])
+                        except:
+                            pass
+
+                        # If existing Ollama doesn't have our USB models, use alternate port
+                        if not usb_model_names:
+                            p("System Ollama detected but USB models not available.", "warn")
+                            p("Starting USB Ollama on alternate port...", "warn")
+                            alt = find_free_port(11435, 11500)
+                            if alt:
+                                self.ollama_port = alt
+                                p(f"Using port {alt}", "warn")
+                            else:
+                                p("Could not find free port.", "error")
+                                return False
+                        else:
+                            # Use the existing Ollama (it already has our models loaded)
+                            p(f"Using existing Ollama on port 11434 ({len(existing_models)} model(s))", "ok")
+                            return True
+            except Exception as e:
+                p(f"Port 11434 in use but not responding: {e}", "warn")
+                # Try alternate port anyway
+                alt = find_free_port(11435, 11500)
+                if alt:
+                    self.ollama_port = alt
+                    p(f"Using alternate port {alt}", "warn")
 
         env = os.environ.copy()
         env["OLLAMA_MODELS"] = str(MODELS_DIR)
@@ -338,7 +410,7 @@ class LocalMindLauncher:
 
         p("Waiting for AI engine to start...", "info")
         url = f"http://127.0.0.1:{self.ollama_port}/api/tags"
-        if wait_for_url(url, timeout=60):
+        if wait_for_url(url, timeout=180):
             p("AI engine is running!", "ok")
             return True
         else:
@@ -358,6 +430,8 @@ class LocalMindLauncher:
         env["LOCALMIND_ROOT"] = str(USB_ROOT)
         env["LOCALMIND_DATA"] = str(DATA_DIR)
         env["LOCALMIND_PORT"] = str(DASHBOARD_PORT)
+        env["LOCALMIND_OLLAMA_HOST"] = "127.0.0.1"
+        env["LOCALMIND_OLLAMA_PORT"] = str(self.ollama_port)
         env["OLLAMA_HOST"] = "127.0.0.1"
         env["OLLAMA_PORT"] = str(self.ollama_port)
 
