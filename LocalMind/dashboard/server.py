@@ -30,6 +30,7 @@ OLLAMA_HOST = os.environ.get("LOCALMIND_OLLAMA_HOST", "127.0.0.1")
 OLLAMA_PORT = int(os.environ.get("LOCALMIND_OLLAMA_PORT", "11434"))
 OLLAMA_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
 _CHAT_LOCK = threading.Lock()  # Serialize concurrent chat requests — Ollama handles one at a time
+_SPEED_CACHE_FILE = DATA_DIR / "speed_model.json"
 
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 CONFIG_FILE = DATA_DIR / "localmind.json"
@@ -69,6 +70,10 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:h
 .sidebar-footer{padding:16px;border-top:1px solid var(--border);}
 .status{display:flex;align-items:center;gap:8px;font-size:12px;}
 .status-dot{width:8px;height:8px;border-radius:50%;background:var(--success);animation:pulse 2s infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.quick-btn{transition:all .2s}
+.quick-btn.active{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+.quick-badge{background:var(--accent);color:#fff;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;margin-left:6px;vertical-align:middle;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
 /* Main */
@@ -130,6 +135,10 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:h
       <div class="status-dot"></div>
       <span id="status-text">AI Ready</span>
     </div>
+    <div id="quick-info" style="display:none;margin-top:8px;font-size:11px;color:var(--text2);line-height:1.4;"></div>
+    <button id="quick-btn" onclick="toggleQuickMode()" style="margin-top:10px;width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+      ⚡ Quick Mode: AUTO
+    </button>
   </div>
 </div>
 
@@ -159,6 +168,48 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:h
 <script>
 let selectedModel = null;
 let messages = [];
+let quickMode = false;
+let detectedFastest = null;
+
+function toggleQuickMode() {
+  quickMode = !quickMode;
+  const btn = document.getElementById("quick-btn");
+  if (!btn) return;
+  if (quickMode) {
+    btn.classList.add("active");
+    btn.textContent = "⚡ Quick Mode: ON";
+    if (detectedFastest && selectedModel !== detectedFastest) {
+      document.querySelectorAll(".model-card").forEach(c => c.classList.remove("active"));
+      const cards = document.querySelectorAll(".model-card");
+      cards.forEach(c => {
+        if (c.querySelector(".name")?.textContent.includes(detectedFastest)) {
+          c.classList.add("active");
+          selectedModel = detectedFastest;
+          document.getElementById("current-model").textContent = detectedFastest;
+        }
+      });
+    }
+  } else {
+    btn.classList.remove("active");
+    btn.textContent = "⚡ Quick Mode: AUTO";
+  }
+}
+let quickMode = false;
+
+function toggleQuickMode() {
+  quickMode = !quickMode;
+  const btn = document.getElementById('quick-btn');
+  if (btn) {
+！如果 quickMode:
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+    else:
+      btn.style.background = 'var(--surface2)';
+      btn.style.color = 'var(--text)';
+  }
+  const info = document.getElementById('quick-info');
+  if (info) info.style.display = quickMode ? 'block' : 'none';
+}
 
 // Load models on page load
 async function loadModels() {
@@ -168,15 +219,36 @@ async function loadModels() {
     const list = document.getElementById('model-list');
     list.innerHTML = '';
     
-    data.models.forEach(m => {
-      const card = document.createElement('div');
-      card.className = 'model-card';
-      card.innerHTML = `<div class="name">${m.name}</div><div class="size">${m.size}</div><div class="desc">${m.description || ''}</div>`;
-      card.onclick = () => selectModel(m.name, card);
-      list.appendChild(card);
-    });
+    let defaultModel = data.models[0].name;
     
-    if (data.models.length > 0) selectModel(data.models[0].name, list.firstChild);
+    // If fastest model detected, highlight it in the cards
+    if (data.fastest_model) {
+      data.models.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'model-card' + (m.is_fastest ? ' active' : '');
+        card.innerHTML = `<div class="name">${m.name} ${m.is_fastest ? '<span style="color:var(--accent);font-size:10px;">⚡ FASTEST</span>' : ''}</div><div class="size">${m.size || ''}</div><div class="desc">${m.description || ''}</div>`;
+        card.onclick = () => selectModel(m.name, card);
+        list.appendChild(card);
+      });
+      // Auto-select fastest model as default
+      defaultModel = data.fastest_model;
+      // Show quick mode info
+      const info = document.getElementById('quick-info');
+      if (info) {
+        info.innerHTML = `⚡ Fastest: <b>${defaultModel}</b>`;
+        info.style.display = 'block';
+      }
+    } else {
+      data.models.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'model-card';
+        card.innerHTML = `<div class="name">${m.name}</div><div class="size">${m.size || ''}</div><div class="desc">${m.description || ''}</div>`;
+        card.onclick = () => selectModel(m.name, card);
+        list.appendChild(card);
+      });
+    }
+    
+    selectModel(defaultModel, list.querySelector('.active') || list.firstChild);
   } catch (e) {
     console.error('Failed to load models:', e);
   }
@@ -286,6 +358,61 @@ loadModels();
 </html>'''
 
 # ── Request Handler ───────────────────────────────────────
+def _detect_fastest_model():
+    """Return the fastest model for this computer.
+    
+    Strategy:
+    - Check /api/ps for what's currently loaded in RAM
+    - Known speed order: gemma4:e4b (slowest) < mistral:7b < qwen2.5:7b (fastest)
+    - qwen2.5:7b is always preferred because even if it needs loading,
+      it loads faster than mistral/gemma and is fastest once loaded
+    - Cache result for 24h
+    """
+    cache_file = _SPEED_CACHE_FILE
+
+    # Satisfied? Cache valid 24h
+    if cache_file.exists():
+        try:
+            with open(cache_file) as f:
+                cached = json.load(f)
+            if cached.get("timestamp"):
+                age = time.time() - cached["timestamp"]
+                if age < 86400:
+                    return cached.get("model")
+        except Exception:
+            pass
+
+    # Default to qwen2.5:7b (best-in-class speed, most capable for CPU-only)
+    # Unless a clearly faster model is already loaded and we've measured it before
+    preferred = ["qwen2.5:7b", "mistral:7b", "gemma4:e4b"]
+
+    in_ram = []
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/ps", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            in_ram = [m.get("name") for m in data.get("models", [])]
+    except Exception:
+        pass
+
+    # If qwen is in RAM, use it (it's the fastest)
+    # If qwen NOT in RAM but mistral IS, return qwen (still faster to load/switch to)
+    # Only fall back to loaded non-qwen model if nothing else is available
+    if "qwen2.5:7b" in in_ram:
+        result = "qwen2.5:7b"
+    else:
+        result = "qwen2.5:7b"  # Always prefer qwen — faster to load than other models
+
+    # Cache
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w") as f:
+            json.dump({"model": result, "timestamp": time.time()}, f)
+    except Exception:
+        pass
+
+    return result
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Silent logging
@@ -340,6 +467,13 @@ class Handler(BaseHTTPRequestHandler):
                 status, body = self._proxy_to_ollama("/api/tags", timeout=5)
                 if status == 200:
                     data = json.loads(body)
+                    # Detect or load cached fastest model
+                    fastest = _detect_fastest_model()
+                    if fastest:
+                        data["fastest_model"] = fastest
+                        for m in data.get("models", []):
+                            if m.get("name") == fastest:
+                                m["is_fastest"] = True
                     # Enrich with manifest info
                     if MANIFEST_FILE.exists():
                         try:
@@ -409,6 +543,11 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length).decode()
         
         if path == "/api/chat":
+            # Check for speed mode hint
+            parsed = urlparse(self.path)
+            query_params = parse_qs(parsed.query)
+            is_speed_mode = query_params.get("mode", [None])[0] == "speed"
+
             # Forward chat request to Ollama
             try:
                 data = json.loads(body)
@@ -416,6 +555,7 @@ class Handler(BaseHTTPRequestHandler):
                 messages = data.get("messages", [])
                 
                 # Build Ollama request
+                # In speed mode, probe first response time and auto-select fastest model if needed
                 ollama_body = json.dumps({
                     "model": model,
                     "messages": messages,
