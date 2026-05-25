@@ -51,7 +51,7 @@ DATA_DIR = USB_ROOT / "data"
 OPENCLAW_DIR = USB_ROOT / "openclaw"
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 
-OLLAMA_PORT = 11434
+OLLAMA_PORT = 11435
 DASHBOARD_PORT = 3000
 
 # ── Recommended Models ───────────────────────────────────
@@ -93,7 +93,7 @@ def header():
     print()
 
 # ── Utilities ────────────────────────────────────────────
-def find_free_port(start=11434, end=11500):
+def find_free_port(start=11435, end=11500):
     for port in range(start, end):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -312,39 +312,17 @@ class LocalMindLauncher:
     def start_ollama(self):
         p("Starting AI engine...", "info")
 
-        # If port is in use, check if it's already serving models
+        # USB Ollama always uses its own port — never kill other Ollamas
+        # If our preferred port is in use, find a free one
         if not is_port_free(self.ollama_port):
-            p(f"Port {self.ollama_port} in use — checking...", "warn")
-            try:
-                req = urllib.request.Request(f"http://127.0.0.1:{self.ollama_port}/api/tags", method="GET")
-                with urllib.request.urlopen(req, timeout=3) as resp:
-                    data = json.loads(resp.read())
-                    models = data.get("models", [])
-                    if models:
-                        p(f"Ollama already running with {len(models)} model(s)", "ok")
-                        return True
-            except Exception as e:
-                p(f"Port in use but not responding: {e}", "warn")
-
-            # Kill to free port
-            p("Stopping existing Ollama...", "warn")
-            try:
-                if IS_MAC or IS_LINUX:
-                    subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True, timeout=5)
-                elif IS_WIN:
-                    subprocess.run(["taskkill", "/f", "/im", "ollama.exe"], capture_output=True, timeout=5)
-            except:
-                pass
-            time.sleep(2)
-
-            if not is_port_free(self.ollama_port):
-                alt = find_free_port(self.ollama_port + 1, self.ollama_port + 50)
-                if alt:
-                    p(f"Using alternate port {alt}", "warn")
-                    self.ollama_port = alt
-                else:
-                    p("Could not find free port. Please quit Ollama manually.", "error")
-                    return False
+            p(f"Port {self.ollama_port} in use — finding free port...", "warn")
+            alt = find_free_port(self.ollama_port + 1, self.ollama_port + 50)
+            if alt:
+                p(f"Using alternate port {alt}", "warn")
+                self.ollama_port = alt
+            else:
+                p("Could not find free port.", "error")
+                return False
 
         env = os.environ.copy()
         env["OLLAMA_MODELS"] = str(MODELS_DIR)
@@ -380,7 +358,7 @@ class LocalMindLauncher:
         env["LOCALMIND_ROOT"] = str(USB_ROOT)
         env["LOCALMIND_DATA"] = str(DATA_DIR)
         env["LOCALMIND_PORT"] = str(DASHBOARD_PORT)
-        env["OLLAMA_HOST"] = "http://127.0.0.1"
+        env["OLLAMA_HOST"] = "127.0.0.1"
         env["OLLAMA_PORT"] = str(self.ollama_port)
 
         self.dashboard_proc = run_bg(
