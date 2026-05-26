@@ -170,6 +170,7 @@ let selectedModel = null;
 let messages = [];
 let quickMode = false;
 let detectedFastest = null;
+let initialModelSet = false;  // Don't re-auto-select on refresh
 
 function toggleQuickMode() {
   quickMode = !quickMode;
@@ -248,7 +249,7 @@ async function loadModels() {
       });
     }
     
-    selectModel(defaultModel, list.querySelector('.active') || list.firstChild);
+    selectModel(defaultModel, null); // null card = page load, don't mark as user-initiated
   } catch (e) {
     console.error('Failed to load models:', e);
   }
@@ -261,6 +262,8 @@ function selectModel(name, card) {
   document.getElementById('current-model').textContent = name;
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
+  // Only mark as user-initiated when card was actually clicked
+  if (card !== null) initialModelSet = true;
 }
 
 async function sendMessage() {
@@ -417,10 +420,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Silent logging
     
+    def _set_no_cache(self):
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+    
     def _send_json(self, data, status=200):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_no_cache()
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
     
@@ -428,6 +437,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_no_cache()
         self.end_headers()
         self.wfile.write(html.encode())
     
