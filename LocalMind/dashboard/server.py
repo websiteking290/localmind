@@ -101,12 +101,11 @@ TIER_FASTEST = {
 
 # ── Preload fastest model on startup ──────────────────
 def _preload_model():
-    """Load the fastest model for this tier into RAM on startup.
+    """Load mistral:7b into RAM on startup.
     
-    This makes first user message instant (under 3s) instead of
-    waiting 30-60s for the model to load from USB.
+    Once warm, mistral:7b responds in 0.5-2s. Other models take 30-60s.
     """
-    model = TIER_FASTEST.get(RAM_TIER, TIER_FASTEST["8gb"])
+    model = "mistral:7b"
     print(f"  Preloading {model}...")
     try:
         req = urllib.request.Request(
