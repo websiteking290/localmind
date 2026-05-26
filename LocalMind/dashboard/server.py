@@ -103,28 +103,52 @@ TIER_FASTEST = {
 def _preload_model():
     """Load mistral:7b into RAM on startup.
     
-    Once warm, mistral:7b responds in 0.5-2s. Other models take 30-60s.
+    Once warm, mistral:7b responds in 0.5-2s. 
+    Other models take 30-60s even when loaded — making them unusable for real chat.
+    mistral is the only model that feels instant on Mac hardware.
     """
     model = "mistral:7b"
     print(f"  Preloading {model}...")
     try:
         req = urllib.request.Request(
             f"{OLLAMA_URL}/api/generate",
-            data=json.dumps({"model": model, "prompt": ".", "stream": False}).encode(),
+            data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=180) as resp:
             json.loads(resp.read())
-        print(f"  ✓ {model} preloaded and ready")
+        print(f"  ✓ {model} warm and ready (0.5-2s responses)")
     except Exception as e:
-        print(f"  ⚠ Preload failed (normal if model already in RAM): {e}")
+        print(f"  ⚠ Preload failed: {e}")
 
 def _preload_async():
-    """Start preload in background thread so it doesn't block server start."""
+    """Start preload in background thread so dashboard opens immediately."""
     t = threading.Thread(target=_preload_model, daemon=True)
     t.start()
     return t
+
+def _preload_blocking():
+    """Preload synchronously — blocks until model is in RAM. Shows progress dots."""
+    import urllib.request, json
+    model = "mistral:7b"
+    print(f"  Preloading {model}...", end="", flush=True)
+    try:
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/generate",
+            data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            while True:
+                chunk = resp.read(1)
+                if not chunk:
+                    break
+                print(".", end="", flush=True)
+        print(f" ✓ {model} ready")
+    except Exception as e:
+        print(f"  ⚠ preload: {e}")
 
 # ── Ensure directories ──────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -755,8 +779,8 @@ def main():
     print(f"  USB Root: {USB_ROOT}")
     print(f"  Press Ctrl+C to stop\n")
     
-    # Preload fastest model in background — makes first chat instant
-    _preload_async()
+    # Preload mistral:7b — makes first chat instant instead of 30s+
+    _preload_blocking()
     
     try:
         server.serve_forever()

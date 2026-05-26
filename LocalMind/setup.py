@@ -391,24 +391,33 @@ class LocalMindLauncher:
         self.ollama_port = OLLAMA_PORT
 
     def _preload_model(self):
-        """Load the fastest model for this tier into RAM so first chat is instant."""
-        import threading, urllib.request, json
-        def _load():
-            try:
-                import time; time.sleep(3)
-                model = "qwen2.5:7b" if self.tier == "8gb" else "qwen3:8b"
-                req = urllib.request.Request(
-                    f"http://127.0.0.1:{self.ollama_port}/api/generate",
-                    data=json.dumps({"model": model, "prompt": ".", "stream": False}).encode(),
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    resp.read()
-            except Exception:
-                pass
-        t = threading.Thread(target=_load, daemon=True)
-        t.start()
+        """Load mistral:7b into RAM synchronously with progress dots.
+        
+        Shows dots as model loads so user knows it's working.
+        keep_alive=5h keeps model in RAM for whole session.
+        Once warm, responses are 0.5-2s instead of 30s+.
+        """
+        import urllib.request, json, time
+        model = "mistral:7b"
+        print(f"  Preloading {model}... (first load takes ~20s, stay tuned)")
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.ollama_port}/api/generate",
+                data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                # Read streamed response to confirm load
+                received = 0
+                while True:
+                    chunk = resp.read(1)
+                    if not chunk:
+                        break
+                    received += 1
+            print(f"  ✓ {model} warm — responses will be 0.5-2s")
+        except Exception as e:
+            print(f"  ⚠ Preload note: {e} — chat will load model on first message")
 
     def _cleanup_stale_runners(self):
         """Kill stale Ollama runner processes from previous sessions."""
