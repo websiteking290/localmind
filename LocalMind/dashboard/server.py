@@ -13,6 +13,7 @@ import os
 import json
 import time
 import socket
+import subprocess
 import threading
 import urllib.request
 import urllib.error
@@ -35,6 +36,48 @@ _SPEED_CACHE_FILE = DATA_DIR / "speed_model.json"
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 CONFIG_FILE = DATA_DIR / "localmind.json"
 CHATS_DIR = DATA_DIR / "chats"
+
+# ── RAM Tier Detection ─────────────────────────────────
+# Passed in from setup.py if available, otherwise auto-detect
+def _get_ram_tier():
+    # Check env first (setup.py passes this)
+    env_tier = os.environ.get("LOCALMIND_RAM_TIER", "").strip().lower()
+    if env_tier in ("8gb", "16gb"):
+        return env_tier
+    # Auto-detect system RAM
+    try:
+        if sys.platform == "darwin" or sys.platform.startswith("linux"):
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5
+            )
+            gb = int(result.stdout.strip()) / (1024**3)
+        elif sys.platform == "win32":
+            result = subprocess.run(
+                ["powershell", "-Command",
+                 "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"],
+                capture_output=True, text=True, timeout=5
+            )
+            gb = int(result.stdout.strip().replace(",", "")) / (1024**3)
+        else:
+            return "8gb"
+        return "16gb" if gb >= 15.5 else "8gb"
+    except Exception:
+        return "8gb"
+
+RAM_TIER = _get_ram_tier()
+
+# Model tier definitions
+TIER_MODELS = {
+    "8gb":  ["gemma4:e4b", "qwen2.5:7b", "qwen2.5-coder:7b"],
+    "16gb": ["qwen3:8b", "qwen2.5-coder:14b", "gemma3:12b"],
+}
+
+# Fastest model per tier
+TIER_FASTEST = {
+    "8gb":  "qwen2.5:7b",
+    "16gb": "qwen3:8b",
+}
 
 # ── Ensure directories ──────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -124,7 +167,7 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:h
 <div class="sidebar">
   <div class="brand">
     <h1>LocalMind</h1>
-    <p>Your AI, Offline</p>
+    <p id="tier-label">Your AI, Offline</p>
   </div>
   <div class="models" id="models">
     <h3>AI Models</h3>
@@ -204,36 +247,42 @@ async function loadModels() {
     const list = document.getElementById('model-list');
     list.innerHTML = '';
     
-    let defaultModel = data.models[0].name;
-    
-    // If fastest model detected, highlight it in the cards
-    if (data.fastest_model) {
-      data.models.forEach(m => {
-        const card = document.createElement('div');
-        card.className = 'model-card' + (m.is_fastest ? ' active' : '');
-        card.innerHTML = `<div class="name">${m.name} ${m.is_fastest ? '<span style="color:var(--accent);font-size:10px;">⚡ FASTEST</span>' : ''}</div><div class="size">${m.size || ''}</div><div class="desc">${m.description || ''}</div>`;
-        card.onclick = () => selectModel(m.name, card);
-        list.appendChild(card);
-      });
-      // Auto-select fastest model as default
-      defaultModel = data.fastest_model;
-      // Show quick mode info
-      const info = document.getElementById('quick-info');
-      if (info) {
-        info.innerHTML = `⚡ Fastest: <b>${defaultModel}</b>`;
-        info.style.display = 'block';
-      }
+    // Show tier badge in sidebar
+    if (data.ram_tier === '16gb') {
+      const tl = document.getElementById('tier-label');
+      if (tl) tl.innerHTML = '<span style="color:var(--warning);">⚡ 16GB MODE</span>';
     } else {
-      data.models.forEach(m => {
-        const card = document.createElement('div');
-        card.className = 'model-card';
-        card.innerHTML = `<div class="name">${m.name}</div><div class="size">${m.size || ''}</div><div class="desc">${m.description || ''}</div>`;
-        card.onclick = () => selectModel(m.name, card);
-        list.appendChild(card);
-      });
+      const tl = document.getElementById('tier-label');
+      if (tl) tl.textContent = 'Your AI, Offline — 8GB';
     }
     
-    selectModel(defaultModel, null); // null card = page load, don't mark as user-initiated
+    const fastest = data.fastest_model || null;
+    let defaultModel = data.models[0] ? data.models[0].name : null;
+    
+    data.models.forEach(m => {
+      const isFastest = m.name === fastest;
+      const card = document.createElement('div');
+      card.className = 'model-card' + (isFastest ? ' active' : '');
+      const badge = isFastest ? '<span style="color:var(--accent);font-size:10px;"> ⚡ FASTEST</span>' : '';
+      card.innerHTML = '<div class="name">' + m.name + badge + '</div><div class="size">' + (m.size || '') + '</div><div class="desc">' + (m.description || '') + '</div>';
+      (function(name, cardEl){ card.onclick = function(){
+        initialModelSet = true;
+        selectModel(name, cardEl);
+      }; })(m.name, card);
+      list.appendChild(card);
+    });
+    
+    // Auto-select fastest for this tier once
+    if (fastest && !initialModelSet) {
+      defaultModel = fastest;
+      const info = document.getElementById('quick-info');
+      if (info) {
+        info.innerHTML = '\u26a1 <b>' + fastest + '</b> selected — ' + (data.ram_tier === '16gb' ? '16GB tier' : '8GB tier');
+        info.style.display = 'block';
+      }
+    }
+    
+    selectModel(defaultModel, list.querySelector('.active') || list.firstChild);
   } catch (e) {
     console.error('Failed to load models:', e);
   }
@@ -456,58 +505,50 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(DASHBOARD_HTML)
         
         elif path == "/api/models":
-            # List models from Ollama with fallback to manifest
+            # List models from Ollama filtered to the current RAM tier
+            # Also include tier info so the JS can show appropriate badges
+            tier_models = TIER_MODELS.get(RAM_TIER, TIER_MODELS["8gb"])
+            fastest = TIER_FASTEST.get(RAM_TIER, TIER_FASTEST["8gb"])
+            
             try:
                 status, body = self._proxy_to_ollama("/api/tags", timeout=5)
                 if status == 200:
                     data = json.loads(body)
-                    # Detect or load cached fastest model
-                    fastest = _detect_fastest_model()
-                    if fastest:
-                        data["fastest_model"] = fastest
-                        for m in data.get("models", []):
-                            if m.get("name") == fastest:
-                                m["is_fastest"] = True
-                    # Enrich with manifest info
-                    if MANIFEST_FILE.exists():
-                        try:
-                            with open(MANIFEST_FILE) as f:
-                                manifest = json.load(f)
-                            model_map = {m["name"]: m for m in manifest.get("models", [])}
-                            for m in data.get("models", []):
-                                name = m.get("name", "").replace(":latest", "")
-                                if name in model_map:
-                                    m["description"] = model_map[name].get("description", "")
-                                    m["size_gb"] = model_map[name].get("size_gb", "")
-                                    m["parameters"] = model_map[name].get("parameters", "")
-                        except Exception:
-                            pass  # Don't fail if manifest enrichment breaks
+                    # Filter to only models in this RAM tier
+                    filtered = [m for m in data.get("models", []) if m.get("name") in tier_models]
+                    data["models"] = filtered
+                    data["ram_tier"] = RAM_TIER
+                    data["fastest_model"] = fastest
+                    for m in filtered:
+                        if m.get("name") == fastest:
+                            m["is_fastest"] = True
                     self._send_json(data)
                     return
             except Exception as e:
-                pass  # Fall through to manifest fallback
+                pass
             
-            # Fallback: read from manifest only
+            # Fallback: build from manifest filtered to tier
             try:
                 if MANIFEST_FILE.exists():
                     with open(MANIFEST_FILE) as f:
                         manifest = json.load(f)
                     models = []
                     for m in manifest.get("models", []):
-                        models.append({
-                            "name": m.get("name", "") + ":latest",
-                            "model": m.get("name", "") + ":latest",
-                            "size": int(m.get("size_gb", 0) * 1024 * 1024 * 1024),
-                            "description": m.get("description", ""),
-                            "size_gb": m.get("size_gb", ""),
-                            "parameters": m.get("parameters", ""),
-                        })
-                    self._send_json({"models": models})
+                        if m.get("name") in tier_models:
+                            models.append({
+                                "name": m.get("name", "") + ":latest",
+                                "model": m.get("name", "") + ":latest",
+                                "size": int(m.get("size_gb", 0) * 1024 * 1024 * 1024),
+                                "description": m.get("description", ""),
+                                "size_gb": m.get("size_gb", ""),
+                                "parameters": m.get("parameters", ""),
+                            })
+                    self._send_json({"models": models, "ram_tier": RAM_TIER, "fastest_model": fastest})
                     return
             except Exception:
                 pass
             
-            self._send_json({"models": []})
+            self._send_json({"models": [], "ram_tier": RAM_TIER, "fastest_model": fastest})
         
         elif path == "/api/system":
             # System info
@@ -522,7 +563,8 @@ class Handler(BaseHTTPRequestHandler):
                 "model_count": len(manifest.get("models", [])),
                 "usb_path": str(USB_ROOT),
                 "port": PORT,
-                "version": "1.0.0",
+                "version": "2.0",
+                "ram_tier": RAM_TIER,
             })
         
         else:

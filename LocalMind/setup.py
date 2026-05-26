@@ -5,10 +5,10 @@ LocalMind AI — Unified Setup & Launcher
 Plug-and-play USB AI launcher. Cross-platform: macOS, Windows, Linux.
 
 What this does:
-  1. Checks / installs Python
-  2. Checks / downloads AI models
+  1. Detects system RAM → selects appropriate model tier
+  2. Checks / installs Python
   3. Starts Ollama AI engine (bundled binary)
-  4. Starts web dashboard
+  4. Starts web dashboard with RAM-tier-appropriate models
   5. Opens browser
   6. Lets you choose: Local Chat (web) or OpenClaw (terminal)
 
@@ -54,13 +54,64 @@ MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 OLLAMA_PORT = 11434
 DASHBOARD_PORT = 3000
 
-# ── Recommended Models ───────────────────────────────────
-# Models that run on 8GB RAM average computers
-RECOMMENDED_MODELS = [
-    {"name": "gemma4:e4b", "size_gb": 2.6, "desc": "Google DeepMind's latest. Efficient, runs anywhere."},
-    {"name": "qwen2.5:7b", "size_gb": 4.7, "desc": "Strong all-purpose. Great coding & reasoning."},
-    {"name": "mistral:7b", "size_gb": 4.1, "desc": "Fast, reliable, well-tested."},
+# ── RAM Detection & Model Tiers ───────────────────────────
+def get_system_ram_gb():
+    """Detect total system RAM in GB."""
+    try:
+        if IS_MAC or IS_LINUX:
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5
+            )
+            return int(result.stdout.strip()) / (1024**3)
+        elif IS_WIN:
+            result = subprocess.run(
+                ["powershell", "-Command", "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"],
+                capture_output=True, text=True, timeout=5
+            )
+            return int(result.stdout.strip().replace(",", "")) / (1024**3)
+    except Exception:
+        pass
+    # Fallback via os.sysconf
+    try:
+        return int(os.sysconf("SC_PHYSMEM")) / (1024**3)
+    except Exception:
+        return None
+
+RAM_TIER_16GB = 15.5  # machines with 16GB+ get premium models
+RAM_TIER_8GB = 7.5    # machines with 8GB+ get standard models
+
+def get_ram_tier():
+    """Return '16gb' or '8gb' based on detected RAM."""
+    ram = get_system_ram_gb()
+    if ram is None:
+        return "8gb"  # safe default
+    if ram >= RAM_TIER_16GB:
+        return "16gb"
+    return "8gb"
+
+# ── Model Tiers ───────────────────────────────────────────
+# All models that can be on the USB
+ALL_MODELS = [
+    # 8GB tier — runs on most laptops
+    {"name": "gemma4:e4b",    "size_gb": 2.6, "tier": "8gb",
+     "desc": "Fast, efficient. Great for quick tasks and creative writing."},
+    {"name": "qwen2.5:7b",    "size_gb": 4.7, "tier": "8gb",
+     "desc": "Strong all-purpose. Great coding, reasoning, and general chat."},
+    {"name": "qwen2.5-coder:7b", "size_gb": 4.8, "tier": "8gb",
+     "desc": "Code-specialized. Built for programming and debugging."},
+    # 16GB tier — needs more headroom
+    {"name": "qwen3:8b",        "size_gb": 5.5, "tier": "16gb",
+     "desc": "Latest Qwen. Smarter chat, better reasoning. Requires 16GB RAM."},
+    {"name": "qwen2.5-coder:14b", "size_gb": 9.0, "tier": "16gb",
+     "desc": "Premium coding. 14B params for complex programming tasks."},
+    {"name": "gemma3:12b",       "size_gb": 8.0, "tier": "16gb",
+     "desc": "Vision model. Analyzes images, reads screenshots, describes photos."},
 ]
+
+def get_models_for_tier(tier):
+    """Return list of model names for the given RAM tier."""
+    return [m["name"] for m in ALL_MODELS if m["tier"] == tier or m["tier"] == "both"]
 
 # ── Colors ───────────────────────────────────────────────
 C = {
@@ -81,14 +132,21 @@ def p(msg, lvl="info"):
            "error": C["red"], "ask": C["blue"]}
     print(f"{col.get(lvl, '')}{pre.get(lvl, '[i]')}{C['reset']} {msg}")
 
-def header():
+def header(tier=None):
+    tier_label = ""
+    if tier == "16gb":
+        tier_label = f"{C['yellow']} ⚡ 16GB TIER{C['reset']}"
+    elif tier == "8gb":
+        tier_label = f"{C['cyan']} ◆ 8GB TIER{C['reset']}"
     print()
+    if tier_label:
+        print(f"   {tier_label}")
+        print()
     print(f"{C['cyan']}{C['bold']}    ╔═══════════════════════════════════════════════════════════╗{C['reset']}")
     print(f"{C['cyan']}{C['bold']}    ║                                                           ║{C['reset']}")
     print(f"{C['cyan']}{C['bold']}    ║              🤖  LOCALMIND AI - USB LAUNCHER               ║{C['reset']}")
     print(f"{C['cyan']}{C['bold']}    ║                                                           ║{C['reset']}")
     print(f"{C['cyan']}{C['bold']}    ║      Run AI models completely offline - No internet       ║{C['reset']}")
-    print(f"{C['cyan']}{C['bold']}    ║                                                           ║{C['reset']}")
     print(f"{C['cyan']}{C['bold']}    ╚═══════════════════════════════════════════════════════════╝{C['reset']}")
     print()
 
@@ -127,7 +185,6 @@ def run_bg(cmd, env=None, cwd=None, hide=True):
     kw = {"env": env, "cwd": str(cwd) if cwd else None}
     if IS_WIN:
         kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        # Set DLL search path so Ollama can find its CPU backend DLLs
         import ctypes
         try:
             dll_path = str(OLLAMA_DIR / "windows" / "lib")
@@ -137,7 +194,7 @@ def run_bg(cmd, env=None, cwd=None, hide=True):
             env["PATH"] = dll_path + os.pathsep + env.get("PATH", "")
             kw["env"] = env
         except Exception:
-            pass  # Non-critical if this fails
+            pass
     if hide:
         kw["stdout"] = subprocess.DEVNULL
         kw["stderr"] = subprocess.DEVNULL
@@ -233,7 +290,7 @@ def find_ollama():
             print(f"   - {c}")
     sys.exit(1)
 
-# ── Step 3: Model Download ───────────────────────────────
+# ── Step 3: Model Management ─────────────────────────────
 def get_installed_models(ollama_bin):
     try:
         env = os.environ.copy()
@@ -276,47 +333,52 @@ def download_model(ollama_bin, model_name):
         p(f"Failed to download {model_name}", "error")
         return False
 
-def manage_models(ollama_bin):
+def manage_models(ollama_bin, ram_tier):
+    """Ensure models for the detected RAM tier are installed."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+    tier_models = get_models_for_tier(ram_tier)
     installed = get_installed_models(ollama_bin)
-    if installed:
-        p(f"{len(installed)} model(s) already installed:", "ok")
-        for m in installed:
+
+    # Check which tier models are missing
+    missing = [m for m in tier_models if m not in installed]
+    present = [m for m in tier_models if m in installed]
+
+    if present:
+        p(f"{len(present)}/{len(tier_models)} {ram_tier.upper()} models already on USB:", "ok")
+        for m in present:
             print(f"   • {m}")
+    else:
+        p(f"No {ram_tier.upper()} models found on USB.", "warn")
+
+    if missing:
         print()
-        return
-
-    p("No AI models found on USB.", "warn")
-    print()
-    print(f"{C['bold']}   Recommended models to download:{C['reset']}")
-    total = 0
-    for i, m in enumerate(RECOMMENDED_MODELS, 1):
-        print(f"   {i}) {C['cyan']}{m['name']}{C['reset']} ({m['size_gb']} GB) — {m['desc']}")
-        total += m["size_gb"]
-    print(f"\n   Total: ~{round(total, 1)} GB")
-    print()
-
-    if not confirm("Download recommended models now?", default=True):
-        p("Skipping model download. Run 'ollama pull <model>' later.", "warn")
-        return
-
-    print()
-    for m in RECOMMENDED_MODELS:
-        if not download_model(ollama_bin, m["name"]):
-            p(f"Skipping {m['name']}", "warn")
+        p(f"Models to download for {ram_tier.upper()} tier:", "info")
+        tier_all_models = [m for m in ALL_MODELS if m["tier"] == ram_tier]
+        total_gb = sum(m["size_gb"] for m in tier_all_models)
+        for m_def in tier_all_models:
+            mark = " (missing)" if m_def["name"] in missing else ""
+            print(f"   • {m_def['name']} ({m_def['size_gb']} GB){mark}")
+        print(f"   Total: ~{round(total_gb, 1)} GB")
         print()
+        if confirm("Download now?", default=True):
+            for m_name in missing:
+                download_model(ollama_bin, m_name)
+                print()
 
+    # Final status
     installed = get_installed_models(ollama_bin)
-    p(f"{len(installed)} model(s) now installed.", "ok")
-
+    tier_now = [m for m in installed if m in tier_models]
+    p(f"{len(tier_now)} {ram_tier.upper()} models ready.", "ok")
 
 # ── Step 4: Start Services ─────────────────────────────────
 class LocalMindLauncher:
-    def __init__(self):
+    def __init__(self, ram_tier="8gb"):
+        self.ram_tier = ram_tier
         self.ollama_bin = None
         self.ollama_proc = None
         self.dashboard_proc = None
+        self.dashboard_port = DASHBOARD_PORT
         self.running = False
         self.ollama_port = OLLAMA_PORT
 
@@ -335,29 +397,25 @@ class LocalMindLauncher:
                             pid = parts[1]
                             try:
                                 subprocess.run(["kill", "-9", pid], capture_output=True, timeout=2)
-                                p(f"Cleaned up stale runner PID {pid}", "warn")
                             except:
                                 pass
             elif IS_WIN:
                 subprocess.run(["taskkill", "/f", "/im", "ollama.exe"], capture_output=True, timeout=5)
-        except Exception as e:
-            pass  # Best effort
+        except Exception:
+            pass
 
     def start_ollama(self):
         p("Starting AI engine...", "info")
 
-        # Clean any stale runners from previous sessions first
         self._cleanup_stale_runners()
 
-        # Check if default port 11434 is already in use by another Ollama
         if self.ollama_port == 11434 and not is_port_free(11434):
-            p("Port 11434 is in use — checking for conflict...", "warn")
+            p("Port 11434 in use — checking for conflict...", "warn")
             try:
                 req = urllib.request.Request(f"http://127.0.0.1:11434/api/tags", method="GET")
                 with urllib.request.urlopen(req, timeout=3) as resp:
                     existing_models = json.loads(resp.read()).get("models", [])
                     if existing_models:
-                        # Check if USB models are available on this Ollama
                         usb_model_names = set()
                         try:
                             env = os.environ.copy()
@@ -372,25 +430,12 @@ class LocalMindLauncher:
                                     usb_model_names.add(line.strip().split()[0])
                         except:
                             pass
-
-                        # If existing Ollama doesn't have our USB models, use alternate port
                         if not usb_model_names:
-                            p("System Ollama detected but USB models not available.", "warn")
-                            p("Starting USB Ollama on alternate port...", "warn")
                             alt = find_free_port(11435, 11500)
                             if alt:
                                 self.ollama_port = alt
-                                p(f"Using port {alt}", "warn")
-                            else:
-                                p("Could not find free port.", "error")
-                                return False
-                        else:
-                            # Use the existing Ollama (it already has our models loaded)
-                            p(f"Using existing Ollama on port 11434 ({len(existing_models)} model(s))", "ok")
-                            return True
-            except Exception as e:
-                p(f"Port 11434 in use but not responding: {e}", "warn")
-                # Try alternate port anyway
+                                p(f"Using alternate port {alt}", "warn")
+            except Exception:
                 alt = find_free_port(11435, 11500)
                 if alt:
                     self.ollama_port = alt
@@ -408,7 +453,7 @@ class LocalMindLauncher:
             env=env,
         )
 
-        p("Waiting for AI engine to start...", "info")
+        p("Waiting for AI engine...", "info")
         url = f"http://127.0.0.1:{self.ollama_port}/api/tags"
         if wait_for_url(url, timeout=180):
             p("AI engine is running!", "ok")
@@ -425,7 +470,6 @@ class LocalMindLauncher:
             p(f"Dashboard not found: {server_py}", "error")
             return False
 
-        # Let server.py find its own port (it does this)
         env = os.environ.copy()
         env["LOCALMIND_ROOT"] = str(USB_ROOT)
         env["LOCALMIND_DATA"] = str(DATA_DIR)
@@ -434,6 +478,7 @@ class LocalMindLauncher:
         env["LOCALMIND_OLLAMA_PORT"] = str(self.ollama_port)
         env["OLLAMA_HOST"] = "127.0.0.1"
         env["OLLAMA_PORT"] = str(self.ollama_port)
+        env["LOCALMIND_RAM_TIER"] = self.ram_tier  # pass tier to dashboard
 
         self.dashboard_proc = run_bg(
             [sys.executable, str(server_py)],
@@ -443,7 +488,6 @@ class LocalMindLauncher:
 
         time.sleep(2)
 
-        # Find actual port
         for port in range(DASHBOARD_PORT, DASHBOARD_PORT + 20):
             if not is_port_free(port):
                 self.dashboard_port = port
@@ -464,25 +508,19 @@ class LocalMindLauncher:
 
     def show_menu(self, auto=False):
         url = f"http://localhost:{self.dashboard_port}"
+        tier_note = f" [{self.ram_tier.upper()} MODE]" if self.ram_tier == "16gb" else ""
         print()
         print(f"{C['green']}{C['bold']}═══════════════════════════════════════════════════════════{C['reset']}")
-        print(f"{C['green']}   ✅ LocalMind is running!{C['reset']}")
+        print(f"{C['green']}   ✅ LocalMind is running!{tier_note}{C['reset']}")
         print()
         print(f"{C['green']}   📊 Dashboard:  {url}{C['reset']}")
         print(f"{C['green']}   🤖 Ollama API: http://localhost:{self.ollama_port}{C['reset']}")
         print()
 
-        # Auto-mode (beginner): skip menu, just open Local Chat
         if auto:
             print(f"{C['cyan']}   🔗 Local Chat is open in your browser!{C['reset']}")
             print()
-            print(f"{C['dim']}   To use OpenClaw terminal chat, open a terminal and run:{C['reset']}")
-            if IS_WIN:
-                print(f"{C['dim']}      openclaw chat{C['reset']}")
-            else:
-                print(f"{C['dim']}      openclaw chat{C['reset']}")
-            print()
-            print(f"   Press Ctrl+C to stop LocalMind.")
+            print(f"{C['dim']}   Press Ctrl+C to stop LocalMind.{C['reset']}")
             return
 
         print(f"{C['yellow']}   Choose your interface:{C['reset']}")
@@ -499,7 +537,7 @@ class LocalMindLauncher:
         if choice == "2":
             self.start_openclaw()
         elif choice == "3":
-            print(f"\n   Dashboard running at {url}")
+            print(f"\n   Dashboard at {url}")
             print("   Press Ctrl+C to stop.")
         else:
             print(f"\n   ✅ Dashboard is open in your browser!")
@@ -547,14 +585,19 @@ class LocalMindLauncher:
         sys.exit(0)
 
     def run(self):
-        header()
+        ram = get_system_ram_gb()
+        tier = get_ram_tier()
+        tier_ram_label = f"{round(ram, 1)}GB" if ram else "unknown"
+        print(f"\n{C['dim']}   Detected {tier_ram_label} RAM → {tier.upper()} tier{C['reset']}")
+
+        header(tier)
 
         python_exe = check_python()
         if python_exe != sys.executable:
             os.execv(python_exe, [python_exe, str(Path(__file__).resolve())])
 
         self.ollama_bin = find_ollama()
-        manage_models(self.ollama_bin)
+        manage_models(self.ollama_bin, tier)
 
         print()
         if not self.start_ollama():
@@ -584,7 +627,6 @@ class LocalMindLauncher:
 # ── Entry ──────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        # Auto mode (beginner/autorun): skip menu, open Local Chat directly
         auto_mode = "--auto" in sys.argv or "-y" in sys.argv
         launcher = LocalMindLauncher()
         launcher.auto_mode = auto_mode
