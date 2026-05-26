@@ -1,7 +1,0 @@
-/.env
-.env
-node_modules/
-.next/
-*.db
-*.db-journal
-/data/
