@@ -300,7 +300,15 @@ def get_installed_models(ollama_bin):
             [str(ollama_bin), "list"],
             capture_output=True, text=True, timeout=10, env=env
         )
-        lines = [l.strip() for l in out.stdout.splitlines() if l.strip() and not l.startswith("NAME")]
+        lines = []
+        for l in out.stdout.splitlines():
+            l = l.strip()
+            if not l or l.startswith("NAME"):
+                continue
+            # Extract just the model name (first whitespace-delimited field)
+            model_name = l.split()[0] if l.split() else ""
+            if model_name:
+                lines.append(model_name)
         return lines
     except:
         return []
@@ -547,15 +555,25 @@ class LocalMindLauncher:
         print()
         p("Starting OpenClaw Chat...", "info")
 
+        # Check for system node first
         node = shutil.which("node")
+
+        # If no system node, try bundled node in openclaw directory
+        if not node:
+            bundled_node = OPENCLAW_DIR / "node" / "bin" / "node"
+            if bundled_node.exists():
+                node = str(bundled_node)
+                p("Using bundled Node.js from USB.", "ok")
+
+        # Still no node? Try to install via homebrew (macOS) or fail
         if not node:
             p("Node.js not found.", "warn")
             if IS_MAC and shutil.which("brew"):
                 p("Installing Node.js via Homebrew...")
-                subprocess.run(["brew", "install", "node"])
+                subprocess.run(["brew", "install", "node"], check=False)
                 node = shutil.which("node")
             else:
-                print("   Install from: https://nodejs.org/")
+                print("   Node.js is required. Install from: https://nodejs.org/")
                 return
 
         if OPENCLAW_DIR.exists() and (OPENCLAW_DIR / "openclaw.mjs").exists():

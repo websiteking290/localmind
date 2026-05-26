@@ -36,6 +36,26 @@ _SPEED_CACHE_FILE = DATA_DIR / "speed_model.json"
 MANIFEST_FILE = USB_ROOT / ".localmind" / "manifest.json"
 CONFIG_FILE = DATA_DIR / "localmind.json"
 CHATS_DIR = DATA_DIR / "chats"
+HISTORY_FILE = DATA_DIR / "conversation_history.json"
+
+# ── Conversation History ──────────────────────────────
+def save_conversation(messages):
+    try:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(HISTORY_FILE, "w") as f:
+            json.dump({"messages": messages, "saved_at": time.time()}, f)
+    except Exception as e:
+        sys.stderr.write(f"[history] save failed: {e}\n")
+
+def load_conversation():
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        with open(HISTORY_FILE) as f:
+            data = json.load(f)
+        return data.get("messages", [])
+    except Exception:
+        return []
 
 # ── RAM Tier Detection ─────────────────────────────────
 # Passed in from setup.py if available, otherwise auto-detect
@@ -78,6 +98,34 @@ TIER_FASTEST = {
     "8gb":  "qwen2.5:7b",
     "16gb": "qwen3:8b",
 }
+
+# ── Preload fastest model on startup ──────────────────
+def _preload_model():
+    """Load the fastest model for this tier into RAM on startup.
+    
+    This makes first user message instant (under 3s) instead of
+    waiting 30-60s for the model to load from USB.
+    """
+    model = TIER_FASTEST.get(RAM_TIER, TIER_FASTEST["8gb"])
+    print(f"  Preloading {model}...")
+    try:
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/generate",
+            data=json.dumps({"model": model, "prompt": ".", "stream": False}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            json.loads(resp.read())
+        print(f"  ✓ {model} preloaded and ready")
+    except Exception as e:
+        print(f"  ⚠ Preload failed (normal if model already in RAM): {e}")
+
+def _preload_async():
+    """Start preload in background thread so it doesn't block server start."""
+    t = threading.Thread(target=_preload_model, daemon=True)
+    t.start()
+    return t
 
 # ── Ensure directories ──────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -215,6 +263,21 @@ let quickMode = false;
 let detectedFastest = null;
 let initialModelSet = false;  // Don't re-auto-select on refresh
 
+// Load conversation history on page load
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history');
+    if (res.ok) {
+      const data = await res.json();
+      messages = data.messages || [];
+      messages.forEach(m => addMessage(m.role, m.content));
+    }
+  } catch(e) {
+    console.warn('Failed to load history:', e);
+  }
+}
+window.addEventListener('DOMContentLoaded', loadHistory);
+
 function toggleQuickMode() {
   quickMode = !quickMode;
   const btn = document.getElementById("quick-btn");
@@ -331,6 +394,17 @@ async function sendMessage() {
     const reply = data.message?.content || data.response || 'No response';
     addMessage('assistant', reply);
     messages.push({role:'assistant',content:reply});
+
+    // Persist conversation to USB
+    try {
+      await fetch('/api/save', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({messages: messages})
+      });
+    } catch (e) {
+      console.warn('History save failed:', e);
+    }
   } catch (e) {
     typing.remove();
     addMessage('assistant', 'Error: ' + e.message);
@@ -567,10 +641,18 @@ class Handler(BaseHTTPRequestHandler):
                 "ram_tier": RAM_TIER,
             })
         
+        elif path == "/api/history":
+            messages = load_conversation()
+            self._send_json({"messages": messages})
+
+        elif path == "/api/clear":
+            save_conversation([])
+            self._send_json({"status": "cleared"})
+
         else:
             self.send_response(404)
             self.end_headers()
-    
+
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -578,7 +660,20 @@ class Handler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode()
         
-        if path == "/api/chat":
+        if path == "/api/save":
+            try:
+                data = json.loads(body)
+                save_conversation(data.get("messages", []))
+                self._send_json({"status": "saved"})
+            except Exception as e:
+                sys.stderr.write(f"[api/save] error: {e}\n")
+                self._send_json({"error": str(e)}, 500)
+
+        elif path == "/api/clear":
+            save_conversation([])
+            self._send_json({"status": "cleared"})
+
+        elif path == "/api/chat":
             # Check for speed mode hint
             parsed = urlparse(self.path)
             query_params = parse_qs(parsed.query)
@@ -660,6 +755,9 @@ def main():
     print(f"\n  LocalMind Dashboard running at http://localhost:{port}")
     print(f"  USB Root: {USB_ROOT}")
     print(f"  Press Ctrl+C to stop\n")
+    
+    # Preload fastest model in background — makes first chat instant
+    _preload_async()
     
     try:
         server.serve_forever()
