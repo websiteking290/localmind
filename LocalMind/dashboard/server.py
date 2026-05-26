@@ -195,22 +195,6 @@ function toggleQuickMode() {
     btn.textContent = "⚡ Quick Mode: AUTO";
   }
 }
-let quickMode = false;
-
-function toggleQuickMode() {
-  quickMode = !quickMode;
-  const btn = document.getElementById('quick-btn');
-  if (btn) {
-！如果 quickMode:
-      btn.style.background = 'var(--accent)';
-      btn.style.color = '#fff';
-    else:
-      btn.style.background = 'var(--surface2)';
-      btn.style.color = 'var(--text)';
-  }
-  const info = document.getElementById('quick-info');
-  if (info) info.style.display = quickMode ? 'block' : 'none';
-}
 
 // Load models on page load
 async function loadModels() {
