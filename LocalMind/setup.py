@@ -390,6 +390,26 @@ class LocalMindLauncher:
         self.running = False
         self.ollama_port = OLLAMA_PORT
 
+    def _preload_model(self):
+        """Load the fastest model for this tier into RAM so first chat is instant."""
+        import threading, urllib.request, json
+        def _load():
+            try:
+                import time; time.sleep(3)
+                model = "qwen2.5:7b" if self.tier == "8gb" else "qwen3:8b"
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{self.ollama_port}/api/generate",
+                    data=json.dumps({"model": model, "prompt": ".", "stream": False}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    resp.read()
+            except Exception:
+                pass
+        t = threading.Thread(target=_load, daemon=True)
+        t.start()
+
     def _cleanup_stale_runners(self):
         """Kill stale Ollama runner processes from previous sessions."""
         try:
@@ -465,6 +485,7 @@ class LocalMindLauncher:
         url = f"http://127.0.0.1:{self.ollama_port}/api/tags"
         if wait_for_url(url, timeout=180):
             p("AI engine is running!", "ok")
+            self._preload_model()
             return True
         else:
             p("AI engine failed to start.", "error")
