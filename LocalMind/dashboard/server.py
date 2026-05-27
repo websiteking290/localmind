@@ -777,12 +777,15 @@ def main():
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     
-    print(f"\n  LocalMind Dashboard running at http://localhost:{port}")
-    print(f"  USB Root: {USB_ROOT}")
-    print(f"  Press Ctrl+C to stop\n")
-    
     # Preload mistral:7b — makes first chat instant instead of 30s+
-    _preload_blocking()
+    # Runs ASYNCHRONOUSLY so dashboard opens immediately.
+    # First user message incurs the ~20s load cost; subsequent messages are instant.
+    _preload_async()
+    
+    print(f"\n  LocalMind Dashboard")
+    print(f"  USB Root: {USB_ROOT}")
+    print(f"  Dashboard:  http://localhost:{port}")
+    print(f"  Press Ctrl+C to stop\n")
     
     try:
         server.serve_forever()
