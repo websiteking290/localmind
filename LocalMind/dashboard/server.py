@@ -758,7 +758,7 @@ class Handler(BaseHTTPRequestHandler):
                         curl_proc = subprocess.Popen(
                             [
                                 "curl", "-s", "-N", "-X", "POST",
-                                f"http://127.0.0.1:{self.ollama_port}/api/chat",
+                                f"http://127.0.0.1:{OLLAMA_PORT}/api/chat",
                                 "-H", "Content-Type: application/json",
                                 "-d", ollama_body,
                             ],
