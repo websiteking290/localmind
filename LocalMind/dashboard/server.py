@@ -89,33 +89,32 @@ RAM_TIER = _get_ram_tier()
 
 # Model tier definitions
 TIER_MODELS = {
-    # mistral:7b is the fastest (0.5-2s) — usable for real conversation
-    # other models are too slow on Mac hardware (30-60s per message)
-    # Note: "both" models (mistral) appear in BOTH tiers
-    "8gb":  ["mistral:7b", "gemma4:e4b", "qwen2.5:7b", "qwen2.5-coder:7b"],
-    "16gb": ["mistral:7b", "qwen3:8b", "qwen2.5-coder:14b", "gemma3:12b"],
+    # gemma4:e4b is the fastest — optimized for speed, instant responses
+    # gemma3 removed — Paul doesn't want it (2026-05-27)
+    "8gb":  ["gemma4:e4b", "mistral:7b", "qwen2.5:7b", "qwen2.5-coder:7b"],
+    "16gb": ["gemma4:e4b", "mistral:7b", "qwen3:8b", "qwen2.5-coder:14b"],
 }
 
-# Fastest model per tier (mistral is universally fast)
+# Default/fastest model per tier
 TIER_FASTEST = {
-    "8gb":  "mistral:7b",
-    "16gb": "mistral:7b",
+    "8gb":  "gemma4:e4b",
+    "16gb": "gemma4:e4b",
 }
 
 # ── Preload fastest model on startup ──────────────────
 def _preload_model():
-    """Load mistral:7b into RAM on startup.
+    """Load gemma4:e4b into RAM on startup.
     
-    Once warm, mistral:7b responds in 0.5-2s. 
+    Once warm, gemma4:e4b responds in 0.5-2s. 
     Other models take 30-60s even when loaded — making them unusable for real chat.
-    mistral is the only model that feels instant on Mac hardware.
+    gemma4:e4b is the fastest model for this product.
     """
-    model = "mistral:7b"
+    model = "gemma4:e4b"
     print(f"  Preloading {model}...")
     try:
         req = urllib.request.Request(
             f"{OLLAMA_URL}/api/generate",
-            data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
+            data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
@@ -132,13 +131,13 @@ def _preload_async():
     return t
 
 def _preload_blocking():
-    """Preload mistral:7b synchronously — blocks until model is in RAM.
+    """Preload gemma4:e4b synchronously — blocks until model is in RAM.
     
     This is the one-time cost before chat feels instant (0.5-2s).
     Uses streaming to detect when model is loaded.
     """
     import urllib.request, json, threading
-    model = "mistral:7b"
+    model = "gemma4:e4b"
     print(f"  Loading {model}...", end="", flush=True)
     try:
         req = urllib.request.Request(
@@ -402,11 +401,12 @@ async function sendMessage() {
   addMessage('user', text);
   messages.push({role:'user',content:text});
   
-  // Show typing
+  // Show typing indicator
   const typing = showTyping();
   
   try {
-    const res = await fetch('/api/chat', {
+    // Streaming chat — tokens appear as they generate, no long wait
+    const res = await fetch('/api/chat?stream=true', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({model:selectedModel,messages:messages})
@@ -416,9 +416,34 @@ async function sendMessage() {
     
     if (!res.ok) throw new Error('Chat failed');
     
-    const data = await res.json();
-    const reply = data.message?.content || data.response || 'No response';
-    addMessage('assistant', reply);
+    // Read streaming response — tokens appear as they generate
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let reply = '';
+    const assistantMsg = document.createElement('div');
+    assistantMsg.className = 'message assistant';
+    assistantMsg.innerHTML = '<div class="role">assistant</div><div></div>';
+    const replyDiv = assistantMsg.querySelector('div:last-child');
+    document.getElementById('messages').appendChild(assistantMsg);
+    
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, {stream:true});
+      // Each chunk is a JSON line with a token
+      chunk.trim().split('\n').forEach(line => {
+        if (!line.trim()) return;
+        try {
+          const data = JSON.parse(line);
+          if (data.token) {
+            reply += data.token;
+            replyDiv.textContent = reply;
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+          }
+        } catch(e) {}
+      });
+    }
+    
     messages.push({role:'assistant',content:reply});
 
     // Persist conversation to USB
@@ -700,10 +725,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"status": "cleared"})
 
         elif path == "/api/chat":
-            # Check for speed mode hint
+            # Check for streaming mode
             parsed = urlparse(self.path)
             query_params = parse_qs(parsed.query)
-            is_speed_mode = query_params.get("mode", [None])[0] == "speed"
+            do_stream = query_params.get("stream", ["false"])[0] == "true"
 
             # Forward chat request to Ollama
             try:
@@ -712,16 +737,44 @@ class Handler(BaseHTTPRequestHandler):
                 messages = data.get("messages", [])
                 
                 # Build Ollama request
-                # In speed mode, probe first response time and auto-select fastest model if needed
                 ollama_body = json.dumps({
                     "model": model,
                     "messages": messages,
-                    "stream": False,
+                    "stream": do_stream,
                 })
                 
-                # Serialize chat requests — Ollama processes models sequentially, not in parallel.
-                # Without this lock, concurrent requests queue up inside Ollama's single-threaded
-                # serve process, causing 502 errors and stalled responses.
+                if do_stream:
+                    # Streaming mode — proxy SSE directly to browser
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    
+                    # Ollama streaming response is SSE/newline-delimited JSON
+                    try:
+                        status, resp_body = self._proxy_to_ollama(
+                            "/api/chat",
+                            method="POST",
+                            body=ollama_body,
+                            headers={"Content-Type": "application/json"},
+                            timeout=120,
+                        )
+                        if status == 200:
+                            # resp_body is the full JSON — extract token by token
+                            resp_data = json.loads(resp_body)
+                            if "message" in resp_data:
+                                token = resp_data["message"].get("content", "")
+                                if token:
+                                    self.wfile.write(json.dumps({"token": token}).encode() + b"\n")
+                            self.wfile.write(json.dumps({"done": True}).encode() + b"\n")
+                        else:
+                            self.wfile.write(json.dumps({"error": f"Ollama error: {status}"}).encode() + b"\n")
+                    except Exception as e:
+                        self.wfile.write(json.dumps({"error": str(e)}).encode() + b"\n")
+                    return
+                
+                # Non-streaming mode — wait for full response
                 with _CHAT_LOCK:
                     status, resp_body = self._proxy_to_ollama(
                         "/api/chat",
