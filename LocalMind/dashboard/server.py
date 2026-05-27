@@ -63,6 +63,8 @@ def _get_ram_tier():
     # Check env first (setup.py passes this)
     env_tier = os.environ.get("LOCALMIND_RAM_TIER", "").strip().lower()
     if env_tier in ("8gb", "16gb"):
+        import sys
+        sys.stderr.write(f"[DEBUG] Using env tier: {env_tier}\n")
         return env_tier
     # Auto-detect system RAM
     try:

@@ -640,6 +640,7 @@ class LocalMindLauncher:
         if python_exe != sys.executable:
             os.execv(python_exe, [python_exe, str(Path(__file__).resolve())])
 
+        self.ram_tier = tier  # override default with detected tier
         self.ollama_bin = find_ollama()
         manage_models(self.ollama_bin, tier)
 
