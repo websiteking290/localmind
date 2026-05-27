@@ -107,6 +107,11 @@ ALL_MODELS = [
      "desc": "Premium coding. 14B params for complex programming tasks."},
     {"name": "gemma3:12b",       "size_gb": 8.0, "tier": "16gb",
      "desc": "Vision model. Analyzes images, reads screenshots, describes photos."},
+    # mistral:7b goes in BOTH tiers — it's the universal fastest model (0.5-2s per message).
+    # All other models take 30-60s even when warm on Mac hardware. mistral is the only
+    # one that feels instant. setup.py downloads it always; dashboard preloads it always.
+    {"name": "mistral:7b",       "size_gb": 4.1, "tier": "both",
+     "desc": "Universal fastest. Instant responses once loaded. Works on all machines."},
 ]
 
 def get_models_for_tier(tier):

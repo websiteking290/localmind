@@ -91,6 +91,7 @@ RAM_TIER = _get_ram_tier()
 TIER_MODELS = {
     # mistral:7b is the fastest (0.5-2s) — usable for real conversation
     # other models are too slow on Mac hardware (30-60s per message)
+    # Note: "both" models (mistral) appear in BOTH tiers
     "8gb":  ["mistral:7b", "gemma4:e4b", "qwen2.5:7b", "qwen2.5-coder:7b"],
     "16gb": ["mistral:7b", "qwen3:8b", "qwen2.5-coder:14b", "gemma3:12b"],
 }
@@ -777,15 +778,13 @@ def main():
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     
-    # Preload mistral:7b — makes first chat instant instead of 30s+
-    # Runs ASYNCHRONOUSLY so dashboard opens immediately.
-    # First user message incurs the ~20s load cost; subsequent messages are instant.
-    _preload_async()
-    
-    print(f"\n  LocalMind Dashboard")
+    print(f"\n  LocalMind Dashboard running at http://localhost:{port}")
     print(f"  USB Root: {USB_ROOT}")
-    print(f"  Dashboard:  http://localhost:{port}")
     print(f"  Press Ctrl+C to stop\n")
+    
+    # Preload mistral:7b in background — dashboard opens immediately
+    # First message still takes ~20s but dashboard stays responsive
+    _preload_async()
     
     try:
         server.serve_forever()
