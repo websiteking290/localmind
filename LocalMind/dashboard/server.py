@@ -416,7 +416,7 @@ async function sendMessage() {
     
     if (!res.ok) throw new Error('Chat failed');
     
-    // Read streaming response — tokens appear as they generate
+    // Streaming mode — read SSE tokens as they arrive from Ollama
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let reply = '';
@@ -430,16 +430,18 @@ async function sendMessage() {
       const {done, value} = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, {stream:true});
-      // Each chunk is a JSON line with a token
+      // Each line is a JSON object from Ollama with the streaming response
       chunk.trim().split('\n').forEach(line => {
         if (!line.trim()) return;
         try {
           const data = JSON.parse(line);
-          if (data.token) {
-            reply += data.token;
+          // Ollama sends: {"message":{"content":"Hi"},"done":false}
+          if (data.message?.content) {
+            reply += data.message.content;
             replyDiv.textContent = reply;
             document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
           }
+          if (data.done) break;
         } catch(e) {}
       });
     }
@@ -744,33 +746,34 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 
                 if do_stream:
-                    # Streaming mode — proxy SSE directly to browser
+                    # Streaming mode — pipe Ollama's SSE stream directly to browser in real-time
+                    # urllib can't do streaming, so use curl as a subprocess
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Cache-Control", "no-cache")
                     self.end_headers()
                     
-                    # Ollama streaming response is SSE/newline-delimited JSON
                     try:
-                        status, resp_body = self._proxy_to_ollama(
-                            "/api/chat",
-                            method="POST",
-                            body=ollama_body,
-                            headers={"Content-Type": "application/json"},
-                            timeout=120,
+                        curl_proc = subprocess.Popen(
+                            [
+                                "curl", "-s", "-N", "-X", "POST",
+                                f"http://127.0.0.1:{self.ollama_port}/api/chat",
+                                "-H", "Content-Type: application/json",
+                                "-d", ollama_body,
+                            ],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL,
                         )
-                        if status == 200:
-                            # resp_body is the full JSON — extract token by token
-                            resp_data = json.loads(resp_body)
-                            if "message" in resp_data:
-                                token = resp_data["message"].get("content", "")
-                                if token:
-                                    self.wfile.write(json.dumps({"token": token}).encode() + b"\n")
-                            self.wfile.write(json.dumps({"done": True}).encode() + b"\n")
-                        else:
-                            self.wfile.write(json.dumps({"error": f"Ollama error: {status}"}).encode() + b"\n")
+                        
+                        # Stream curl's output directly to the client
+                        for line in curl_proc.stdout:
+                            if line.strip():
+                                self.wfile.write(line)
+                        
+                        curl_proc.wait()
                     except Exception as e:
+                        sys.stderr.write(f"[streaming] error: {e}\n")
                         self.wfile.write(json.dumps({"error": str(e)}).encode() + b"\n")
                     return
                 

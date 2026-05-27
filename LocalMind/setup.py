@@ -101,15 +101,14 @@ ALL_MODELS = [
     {"name": "qwen2.5-coder:7b", "size_gb": 4.8, "tier": "8gb",
      "desc": "Code-specialized. Built for programming and debugging."},
     # 16GB tier — needs more headroom
+    # gemma3 removed per Paul (2026-05-27) — he wants gemma4 as the primary
     {"name": "qwen3:8b",        "size_gb": 5.5, "tier": "16gb",
      "desc": "Latest Qwen. Smarter chat, better reasoning. Requires 16GB RAM."},
     {"name": "qwen2.5-coder:14b", "size_gb": 9.0, "tier": "16gb",
      "desc": "Premium coding. 14B params for complex programming tasks."},
-    {"name": "gemma3:12b",       "size_gb": 8.0, "tier": "16gb",
-     "desc": "Vision model. Analyzes images, reads screenshots, describes photos."},
     # mistral:7b goes in BOTH tiers — it's the universal fastest model (0.5-2s per message).
     # All other models take 30-60s even when warm on Mac hardware. mistral is the only
-    # one that feels instant. setup.py downloads it always; dashboard preloads it always.
+    # one that feels instant. setup.py downloads it always; dashboard preloads gemma4 on 8GB, mistral on 16GB.
     {"name": "mistral:7b",       "size_gb": 4.1, "tier": "both",
      "desc": "Universal fastest. Instant responses once loaded. Works on all machines."},
 ]
