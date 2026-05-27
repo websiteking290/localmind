@@ -86,16 +86,24 @@ def get_ollama_bin():
     return None
 
 def get_installed_models(ollama_bin):
-    """Return list of installed model names."""
+    """Return list of installed model names. Parses text output (works on Ollama 0.24+)."""
     try:
         env = os.environ.copy()
         result = subprocess.run(
-            [str(ollama_bin), "list", "--json"],
+            [str(ollama_bin), "list"],
             capture_output=True, text=True, timeout=15, env=env
         )
         if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return [m.get("name", "") for m in data.get("models", [])]
+            models = []
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith("NAME") or line.startswith("-"):
+                    continue
+                # First whitespace-delimited field is the model name
+                name = line.split()[0] if line.split() else ""
+                if name:
+                    models.append(name)
+            return models
     except Exception as e:
         print(f"    {P['warn']} Could not list models: {e}")
     return []
@@ -105,15 +113,14 @@ def pull_model(ollama_bin, model_name, progress_callback=None):
     print(f"    {P['info']} Pulling {model_name}...", end=" ", flush=True)
     try:
         proc = subprocess.Popen(
-            [str(ollama_bin), "pull", model_name, "--verbose"],
+            [str(ollama_bin), "pull", model_name],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
         for line in proc.stdout:
             line = line.strip()
-            if progress_callback and ("%" in line or "downloading" in line.lower()):
+            # Show download progress (ollama 0.24 prints % lines)
+            if progress_callback and "%" in line:
                 progress_callback(line)
-            elif line:
-                pass  # quiet
         proc.wait()
         success = proc.returncode == 0
         print(f"{P['done']}" if success else f"{P['error']}")
