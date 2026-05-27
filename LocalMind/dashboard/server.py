@@ -89,14 +89,16 @@ RAM_TIER = _get_ram_tier()
 
 # Model tier definitions
 TIER_MODELS = {
-    "8gb":  ["gemma4:e4b", "qwen2.5:7b", "qwen2.5-coder:7b"],
-    "16gb": ["qwen3:8b", "qwen2.5-coder:14b", "gemma3:12b"],
+    # mistral:7b is the fastest (0.5-2s) — usable for real conversation
+    # other models are too slow on Mac hardware (30-60s per message)
+    "8gb":  ["mistral:7b", "gemma4:e4b", "qwen2.5:7b", "qwen2.5-coder:7b"],
+    "16gb": ["mistral:7b", "qwen3:8b", "qwen2.5-coder:14b", "gemma3:12b"],
 }
 
-# Fastest model per tier
+# Fastest model per tier (mistral is universally fast)
 TIER_FASTEST = {
-    "8gb":  "qwen2.5:7b",
-    "16gb": "qwen3:8b",
+    "8gb":  "mistral:7b",
+    "16gb": "mistral:7b",
 }
 
 # ── Preload fastest model on startup ──────────────────
@@ -129,26 +131,26 @@ def _preload_async():
     return t
 
 def _preload_blocking():
-    """Preload synchronously — blocks until model is in RAM. Shows progress dots."""
-    import urllib.request, json
+    """Preload mistral:7b synchronously — blocks until model is in RAM.
+    
+    This is the one-time cost before chat feels instant (0.5-2s).
+    Uses streaming to detect when model is loaded.
+    """
+    import urllib.request, json, threading
     model = "mistral:7b"
-    print(f"  Preloading {model}...", end="", flush=True)
+    print(f"  Loading {model}...", end="", flush=True)
     try:
         req = urllib.request.Request(
             f"{OLLAMA_URL}/api/generate",
-            data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
+            data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            while True:
-                chunk = resp.read(1)
-                if not chunk:
-                    break
-                print(".", end="", flush=True)
-        print(f" ✓ {model} ready")
+        with urllib.request.urlopen(req, timeout=240) as resp:
+            resp.read()
+        print(f" ✓ {model} warm (0.5-2s per message)")
     except Exception as e:
-        print(f"  ⚠ preload: {e}")
+        print(f"  Note: {e} — model will load on first chat (takes ~20s)")
 
 # ── Ensure directories ──────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)

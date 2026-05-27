@@ -391,33 +391,25 @@ class LocalMindLauncher:
         self.ollama_port = OLLAMA_PORT
 
     def _preload_model(self):
-        """Load mistral:7b into RAM synchronously with progress dots.
+        """Load mistral:7b into RAM. Blocks until model is warm.
         
-        Shows dots as model loads so user knows it's working.
-        keep_alive=5h keeps model in RAM for whole session.
-        Once warm, responses are 0.5-2s instead of 30s+.
+        One-time ~20s cost. After that, chat is 0.5-2s per message.
         """
-        import urllib.request, json, time
+        import urllib.request, json
         model = "mistral:7b"
-        print(f"  Preloading {model}... (first load takes ~20s, stay tuned)")
+        print(f"  Loading {model}... (first load takes ~20s)")
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{self.ollama_port}/api/generate",
-                data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
+                data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                # Read streamed response to confirm load
-                received = 0
-                while True:
-                    chunk = resp.read(1)
-                    if not chunk:
-                        break
-                    received += 1
-            print(f"  ✓ {model} warm — responses will be 0.5-2s")
+            with urllib.request.urlopen(req, timeout=240) as resp:
+                resp.read()
+            print(f"  ✓ {model} warm — chat will be 0.5-2s per message")
         except Exception as e:
-            print(f"  ⚠ Preload note: {e} — chat will load model on first message")
+            print(f"  ⚠ First message will take ~20s to load model: {e}")
 
     def _cleanup_stale_runners(self):
         """Kill stale Ollama runner processes from previous sessions."""
