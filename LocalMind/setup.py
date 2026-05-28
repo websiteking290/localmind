@@ -114,6 +114,12 @@ def get_models_for_tier(tier):
     """Return list of model names for the given RAM tier."""
     return [m["name"] for m in ALL_MODELS if m["tier"] == tier or m["tier"] == "both"]
 
+# Default/fastest model per tier (used by preload)
+TIER_FASTEST = {
+    "8gb":  "qwen2.5:7b",
+    "16gb": "qwen2.5:7b",
+}
+
 # ── Colors ───────────────────────────────────────────────
 C = {
     "cyan": "\033[36m", "green": "\033[32m", "yellow": "\033[33m",
