@@ -1,51 +1,105 @@
 {
-  "version": "2.0",
   "name": "LocalMind",
-  "description": "Offline AI on a USB stick",
-  "ram_tier": "16gb",
-  "ollama_version": "0.5+",
-  "models": [
-    {
-      "name": "gemma4:e4b",
-      "size_gb": 2.6,
-      "tier": "8gb",
-      "desc": "Fast, efficient. Great for quick tasks and creative writing."
+  "version": "2.1",
+  "description": "128GB USB with offline AI — plug in, start chatting. No internet needed after setup.",
+  "ram_tiers": {
+    "8gb": {
+      "label": "8GB Mode",
+      "description": "For most laptops and average computers",
+      "models": [
+        {
+          "name": "qwen2.5:7b",
+          "description": "⚡ FASTEST — Strong all-purpose. Great coding, reasoning, and general chat.",
+          "size_gb": 4.7,
+          "parameters": "7B",
+          "quantization": "Q4_K_M",
+          "is_fastest": true
+        },
+        {
+          "name": "gemma4:e4b",
+          "description": "Efficient and smart. Good for creative writing and quick tasks.",
+          "size_gb": 2.6,
+          "parameters": "4B effective",
+          "quantization": "Q4_K_M"
+        },
+        {
+          "name": "qwen2.5-coder:7b",
+          "description": "Code-specialized. Built for programming and debugging.",
+          "size_gb": 4.8,
+          "parameters": "7B",
+          "quantization": "Q4_K_M"
+        },
+        {
+          "name": "mistral:7b",
+          "description": "Reliable fallback. Good speed and quality on all machines.",
+          "size_gb": 4.1,
+          "parameters": "7B",
+          "quantization": "Q4_K_M"
+        }
+      ],
+      "total_size_gb": 16.2
     },
-    {
-      "name": "qwen2.5:7b",
-      "size_gb": 4.7,
-      "tier": "8gb",
-      "desc": "Strong all-purpose. Great coding, reasoning, and general chat."
-    },
-    {
-      "name": "qwen2.5-coder:7b",
-      "size_gb": 4.8,
-      "tier": "8gb",
-      "desc": "Code-specialized. Built for programming and debugging."
-    },
-    {
-      "name": "qwen3:8b",
-      "size_gb": 5.5,
-      "tier": "16gb",
-      "desc": "Latest Qwen. Smarter chat, better reasoning. Requires 16GB RAM."
-    },
-    {
-      "name": "qwen2.5-coder:14b",
-      "size_gb": 9.0,
-      "tier": "16gb",
-      "desc": "Premium coding. 14B params for complex programming tasks."
-    },
-    {
-      "name": "gemma3:12b",
-      "size_gb": 8.0,
-      "tier": "16gb",
-      "desc": "Vision model. Analyzes images, reads screenshots, describes photos."
-    },
-    {
-      "name": "mistral:7b",
-      "size_gb": 4.1,
-      "tier": "both",
-      "desc": "Fast, reliable all-purpose. Instant responses once loaded."
+    "16gb": {
+      "label": "⚡ 16GB Mode",
+      "description": "For machines with 16GB+ RAM — premium models",
+      "models": [
+        {
+          "name": "qwen2.5:7b",
+          "description": "⚡ FASTEST — Strong all-purpose. Great coding, reasoning, and general chat.",
+          "size_gb": 4.7,
+          "parameters": "7B",
+          "quantization": "Q4_K_M",
+          "is_fastest": true
+        },
+        {
+          "name": "qwen3:8b",
+          "description": "Latest Qwen. Smarter chat, better reasoning.",
+          "size_gb": 5.2,
+          "parameters": "8B",
+          "quantization": "Q4_K_M"
+        },
+        {
+          "name": "qwen2.5-coder:14b",
+          "description": "Premium coding. 14B params for complex programming tasks.",
+          "size_gb": 9.0,
+          "parameters": "14B",
+          "quantization": "Q4_K_M"
+        },
+        {
+          "name": "mistral:7b",
+          "description": "Reliable fallback. Good speed and quality on all machines.",
+          "size_gb": 4.4,
+          "parameters": "7B",
+          "quantization": "Q4_K_M"
+        }
+      ],
+      "total_size_gb": 21.2
     }
-  ]
+  },
+  "ollama_version": "0.24.0",
+  "platforms": [
+    "macOS",
+    "Windows",
+    "Linux"
+  ],
+  "features": [
+    "Auto-detects system RAM — selects appropriate model tier",
+    "8GB tier: qwen2.5:7b ⚡, gemma4:e4b, qwen2.5-coder:7b, mistral:7b",
+    "16GB tier: qwen2.5:7b ⚡, qwen3:8b, qwen2.5-coder:14b, mistral:7b",
+    "Offline AI chat — no internet required",
+    "Web dashboard with tier-appropriate model selector",
+    "Quick Mode auto-selects fastest model for your tier",
+    "Auto-finds free ports (no conflicts)",
+    "OpenClaw terminal chat support",
+    "Runs on 8GB to 128GB machines",
+    "Single model in RAM at a time — fast switching, no swap death"
+  ],
+  "setup": {
+    "script": "setup.py",
+    "entry_points": {
+      "macOS": "START-macOS.command",
+      "Windows": "START-Windows.bat"
+    }
+  },
+  "updated": "2026-05-27"
 }

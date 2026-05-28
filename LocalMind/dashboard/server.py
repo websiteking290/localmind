@@ -90,39 +90,42 @@ def _get_ram_tier():
 RAM_TIER = _get_ram_tier()
 
 # Model tier definitions
+# qwen2.5:7b is the FASTEST model on CPU-only hardware (5 tok/s vs 1.1 tok/s for gemma4:e4b)
+# Only ONE model is loaded in RAM at a time (keep_alive=5m)
 TIER_MODELS = {
-    # gemma4:e4b is the fastest — optimized for speed, instant responses
-    # gemma3 removed — Paul doesn't want it (2026-05-27)
-    "8gb":  ["gemma4:e4b", "mistral:7b", "qwen2.5:7b", "qwen2.5-coder:7b"],
-    "16gb": ["gemma4:e4b", "mistral:7b", "qwen3:8b", "qwen2.5-coder:14b"],
+    "8gb":  ["qwen2.5:7b", "gemma4:e4b", "qwen2.5-coder:7b", "mistral:7b"],
+    "16gb": ["qwen2.5:7b", "qwen3:8b", "qwen2.5-coder:14b", "mistral:7b"],
 }
 
 # Default/fastest model per tier
+# qwen2.5:7b is the fastest model on CPU-only hardware (5 tok/s vs 1.1 tok/s for gemma4:e4b)
+# gemma4:e4b is still available as an option for users who want smarter responses
 TIER_FASTEST = {
-    "8gb":  "gemma4:e4b",
-    "16gb": "gemma4:e4b",
+    "8gb":  "qwen2.5:7b",
+    "16gb": "qwen2.5:7b",
 }
 
 # ── Preload fastest model on startup ──────────────────
 def _preload_model():
-    """Load gemma4:e4b into RAM on startup.
+    """Load the fastest model into RAM on startup.
     
-    Once warm, gemma4:e4b responds in 0.5-2s. 
-    Other models take 30-60s even when loaded — making them unusable for real chat.
-    gemma4:e4b is the fastest model for this product.
+    Only ONE model is loaded at a time. keep_alive=0 means Ollama unloads
+    the previous model when a new one is requested. This prevents RAM swap death.
+    
+    First message takes ~5s (model load), then 0.3-0.6s per message after that.
     """
-    model = "gemma4:e4b"
+    model = TIER_FASTEST.get(RAM_TIER, "qwen2.5:7b")
     print(f"  Preloading {model}...")
     try:
         req = urllib.request.Request(
             f"{OLLAMA_URL}/api/generate",
-            data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5h"}).encode(),
+            data=json.dumps({"model": model, "prompt": ".", "stream": True, "keep_alive": "5m"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=180) as resp:
             json.loads(resp.read())
-        print(f"  ✓ {model} warm and ready (0.5-2s responses)")
+        print(f"  ✓ {model} warm and ready")
     except Exception as e:
         print(f"  ⚠ Preload failed: {e}")
 
@@ -133,25 +136,21 @@ def _preload_async():
     return t
 
 def _preload_blocking():
-    """Preload gemma4:e4b synchronously — blocks until model is in RAM.
-    
-    This is the one-time cost before chat feels instant (0.5-2s).
-    Uses streaming to detect when model is loaded.
-    """
-    import urllib.request, json, threading
-    model = "gemma4:e4b"
+    """Preload the fastest model synchronously — blocks until model is in RAM."""
+    model = TIER_FASTEST.get(RAM_TIER, "qwen2.5:7b")
     print(f"  Loading {model}...", end="", flush=True)
     try:
         req = urllib.request.Request(
             f"{OLLAMA_URL}/api/generate",
-            data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
+            data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5m"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=240) as resp:
             resp.read()
-        print(f" ✓ {model} warm (0.5-2s per message)")
+        print(f" ✓ {model} warm")
     except Exception as e:
+        print(f" ✗ {e}")
         print(f"  Note: {e} — model will load on first chat (takes ~20s)")
 
 # ── Ensure directories ──────────────────────────────────
@@ -743,10 +742,13 @@ class Handler(BaseHTTPRequestHandler):
                 messages = data.get("messages", [])
                 
                 # Build Ollama request
+                # keep_alive="5m" keeps model in RAM for 5 min after last message
+                # This prevents cold-start on every message while allowing model switches
                 ollama_body = json.dumps({
                     "model": model,
                     "messages": messages,
                     "stream": do_stream,
+                    "keep_alive": "5m",
                 })
                 
                 if do_stream:

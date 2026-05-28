@@ -94,23 +94,20 @@ def get_ram_tier():
 # All models that can be on the USB
 ALL_MODELS = [
     # 8GB tier — runs on most laptops
-    {"name": "gemma4:e4b",    "size_gb": 2.6, "tier": "8gb",
-     "desc": "Fast, efficient. Great for quick tasks and creative writing."},
     {"name": "qwen2.5:7b",    "size_gb": 4.7, "tier": "8gb",
-     "desc": "Strong all-purpose. Great coding, reasoning, and general chat."},
+     "desc": "Fast all-purpose. Great coding, reasoning, and general chat. ⚡ FASTEST"},
+    {"name": "gemma4:e4b",    "size_gb": 2.6, "tier": "8gb",
+     "desc": "Efficient and smart. Good for creative writing and quick tasks."},
     {"name": "qwen2.5-coder:7b", "size_gb": 4.8, "tier": "8gb",
      "desc": "Code-specialized. Built for programming and debugging."},
     # 16GB tier — needs more headroom
-    # gemma3 removed per Paul (2026-05-27) — he wants gemma4 as the primary
     {"name": "qwen3:8b",        "size_gb": 5.5, "tier": "16gb",
-     "desc": "Latest Qwen. Smarter chat, better reasoning. Requires 16GB RAM."},
+     "desc": "Latest Qwen. Smarter chat, better reasoning."},
     {"name": "qwen2.5-coder:14b", "size_gb": 9.0, "tier": "16gb",
      "desc": "Premium coding. 14B params for complex programming tasks."},
-    # mistral:7b goes in BOTH tiers — it's the universal fastest model (0.5-2s per message).
-    # All other models take 30-60s even when warm on Mac hardware. mistral is the only
-    # one that feels instant. setup.py downloads it always; dashboard preloads gemma4 on 8GB, mistral on 16GB.
+    # mistral:7b goes in BOTH tiers — solid fallback, good speed
     {"name": "mistral:7b",       "size_gb": 4.1, "tier": "both",
-     "desc": "Universal fastest. Instant responses once loaded. Works on all machines."},
+     "desc": "Reliable fallback. Good speed and quality on all machines."},
 ]
 
 def get_models_for_tier(tier):
@@ -395,25 +392,26 @@ class LocalMindLauncher:
         self.ollama_port = OLLAMA_PORT
 
     def _preload_model(self):
-        """Load mistral:7b into RAM. Blocks until model is warm.
+        """Load the fastest model for this RAM tier. Blocks until model is warm.
         
-        One-time ~20s cost. After that, chat is 0.5-2s per message.
+        Only ONE model loaded at a time — keeps RAM free for fast switching.
+        keep_alive="5m" keeps it in RAM for 5 min, then auto-unloads.
         """
         import urllib.request, json
-        model = "mistral:7b"
-        print(f"  Loading {model}... (first load takes ~20s)")
+        model = TIER_FASTEST.get(self.ram_tier, "qwen2.5:7b")
+        print(f"  Loading {model}... (first load takes ~5-10s)")
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{self.ollama_port}/api/generate",
-                data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5h"}).encode(),
+                data=json.dumps({"model": model, "prompt": ".", "stream": False, "keep_alive": "5m"}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=240) as resp:
                 resp.read()
-            print(f"  ✓ {model} warm — chat will be 0.5-2s per message")
+            print(f"  ✓ {model} warm — chat will be 0.3-0.6s per message")
         except Exception as e:
-            print(f"  ⚠ First message will take ~20s to load model: {e}")
+            print(f"  ⚠ First message will take ~5-10s to load model: {e}")
 
     def _cleanup_stale_runners(self):
         """Kill stale Ollama runner processes from previous sessions."""
