@@ -433,8 +433,10 @@ async function sendMessage() {
       if (done) break;
       const chunk = decoder.decode(value, {stream:true});
       // Each line is a JSON object from Ollama with the streaming response
-      chunk.trim().split('\\n').forEach(line => {
-        if (!line.trim()) return;
+      const lines = chunk.trim().split('\\n');
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        if (!line.trim()) continue;
         try {
           const data = JSON.parse(line);
           // Ollama sends: {"message":{"content":"Hi"},"done":false}
@@ -445,7 +447,7 @@ async function sendMessage() {
           }
           if (data.done) break;
         } catch(e) {}
-      });
+      }
     }
     
     messages.push({role:'assistant',content:reply});
